@@ -105,20 +105,12 @@ class Watcher extends EventEmitter {
 
                 debug(`Watching ${this._rootDir}`);
                 this.rootWatcher = fs.watch(this._rootDir, this.onChangeRoot.bind(this));
+                if (!this.rootWatcher)
+                    throw new Error('Could not install root watcher');
+
                 this.rootWatcher.on('error', this.onErrorRoot.bind(this));
 
-                let updates, updatesPath = path.join(this._rootDir, 'updates');
-                try {
-                    fs.accessSync(updatesPath, fs.constants.F_OK);
-                    updates = true;
-                } catch (error) {
-                    updates = false;
-                }
-                if (updates) {
-                    debug(`Watching ${updatesPath}`);
-                    this.updatesWatcher = fs.watch(updatesPath, this.onChangeUpdates.bind(this));
-                    this.updatesWatcher.on('error', this.onErrorUpdates.bind(this));
-                }
+                this._watchUpdates();
             });
     }
 
@@ -128,6 +120,8 @@ class Watcher extends EventEmitter {
      * @param {string} [filename]                       Name of the file
      */
     onChangeRoot(eventType, filename) {
+        if (eventType == 'rename')
+            this._watchUpdates();
     }
 
     /**
@@ -152,6 +146,43 @@ class Watcher extends EventEmitter {
      */
     onErrorUpdates(error) {
         this._logger.error(`Updates directory error: ${error.message}`);
+    }
+
+    /**
+     * Create and watch updates directory
+     */
+    _watchUpdates() {
+        let updates, updatesPath = path.join(this._rootDir, 'updates');
+        try {
+            fs.accessSync(updatesPath, fs.constants.F_OK);
+            updates = true;
+        } catch (error) {
+            updates = false;
+        }
+
+        if (this.updatesWatcher) {
+            if (!updates) {
+                this.updatesWatcher.close();
+                this.updatesWatcher = null;
+            } else {
+                return;
+            }
+        }
+
+        try {
+            if (!updates)
+                fs.mkdirSync(updatesPath, 0o755);
+
+            debug(`Watching ${updatesPath}`);
+            this.updatesWatcher = fs.watch(updatesPath, this.onChangeUpdates.bind(this));
+            if (!this.updatesWatcher)
+                throw new Error('Could not install updates watcher');
+
+            this.updatesWatcher.on('error', this.onErrorUpdates.bind(this));
+            this._logger.info('Watcher installed');
+        } catch (error) {
+            this._logger.error(new WError(error, 'Watcher._watchUpdates'));
+        }
     }
 }
 

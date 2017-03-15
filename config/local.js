@@ -5,17 +5,21 @@ const path = require('path');
 
 module.exports = {
     // Server instance name (alphanumeric)
-    instance: 'server1',
+    instance: 'daemon',
 
     // Environment
     env: process.env.NODE_ENV || 'production',
 
     // Loaded modules
     modules: [
+        'daemon'
     ],
 
     // Servers
     servers: {
+        daemon: {
+            class: 'servers.daemon',
+        },
         directory: {
             class: 'servers.directory',
         },
