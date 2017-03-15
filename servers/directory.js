@@ -124,6 +124,8 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     setVar(filename, value) {
+        debug(`Setting ${filename} to ${value}`);
+
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this._dataDir, parts.join('/'));
@@ -151,7 +153,7 @@ class Directory extends EventEmitter {
                     );
             })
             .then(() => {
-                this._watcher.notify(filename);
+                return this._watcher.touch(filename);
             })
     }
 
@@ -161,6 +163,8 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     getVar(filename) {
+        debug(`Getting ${filename}`);
+
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this._dataDir, parts.join('/'));
