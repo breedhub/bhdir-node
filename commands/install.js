@@ -93,6 +93,15 @@ class Install {
                         this.error(`Could not create /var/log/bhdir`);
                     }
                 }
+                try {
+                    fs.accessSync('/var/lib/bhdir', fs.constants.F_OK);
+                } catch (error) {
+                    try {
+                        fs.mkdirSync('/var/lib/bhdir', 0o700);
+                    } catch (error) {
+                        this.error(`Could not create /var/lib/bhdir`);
+                    }
+                }
 
                 try {
                     debug('Creating default config');
