@@ -3,6 +3,10 @@
  * @module servers/watcher
  */
 const debug = require('debug')('bhdir:watcher');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const ini = require('ini');
 const EventEmitter = require('events');
 const WError = require('verror').WError;
 
@@ -18,6 +22,9 @@ class Watcher extends EventEmitter {
      */
     constructor(app, config, logger) {
         super();
+
+        this.rootWatcher = null;
+        this.updatesWatcher = null;
 
         this._name = null;
         this._app = app;
@@ -48,7 +55,21 @@ class Watcher extends EventEmitter {
      */
     init(name) {
         this._name = name;
-        return Promise.resolve();
+
+        return Promise.resolve()
+            .then(() => {
+                let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                this._rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
+                if (!this._rootDir)
+                    throw new Error('No root parameter in directory section of bhdir.conf');
+            });
     }
 
     /**
@@ -76,7 +97,61 @@ class Watcher extends EventEmitter {
             )
             .then(() => {
                 debug('Starting the server');
+                try {
+                    fs.accessSync(this._rootDir, fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error(`Directory ${this._rootDir} does not exist`);
+                }
+
+                debug(`Watching ${this._rootDir}`);
+                this.rootWatcher = fs.watch(this._rootDir, this.onChangeRoot.bind(this));
+                this.rootWatcher.on('error', this.onErrorRoot.bind(this));
+
+                let updates, updatesPath = path.join(this._rootDir, 'updates');
+                try {
+                    fs.accessSync(updatesPath, fs.constants.F_OK);
+                    updates = true;
+                } catch (error) {
+                    updates = false;
+                }
+                if (updates) {
+                    debug(`Watching ${updatesPath}`);
+                    this.updatesWatcher = fs.watch(updatesPath, this.onChangeUpdates.bind(this));
+                    this.updatesWatcher.on('error', this.onErrorUpdates.bind(this));
+                }
             });
+    }
+
+    /**
+     * Root directory changed
+     * @param {string} eventType                        Either 'rename' or 'change'
+     * @param {string} [filename]                       Name of the file
+     */
+    onChangeRoot(eventType, filename) {
+    }
+
+    /**
+     * Root directory watcher error
+     * @param {Error} error                             Error object
+     */
+    onErrorRoot(error) {
+        this._logger.error(`Root directory error: ${error.message}`);
+    }
+
+    /**
+     * Updates directory changed
+     * @param {string} eventType                        Either 'rename' or 'change'
+     * @param {string} [filename]                       Name of the file
+     */
+    onChangeUpdates(eventType, filename) {
+    }
+
+    /**
+     * Updates directory watcher error
+     * @param {Error} error                             Error object
+     */
+    onErrorUpdates(error) {
+        this._logger.error(`Updates directory error: ${error.message}`);
     }
 }
 
