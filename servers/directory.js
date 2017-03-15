@@ -101,14 +101,68 @@ class Directory extends EventEmitter {
     }
 
     /**
-     * Get variable
+     * Set variable
+     * @param {string} filename                     Variable path
+     * @return {boolean}
      */
-    get(filename) {
+    validatePath(filename) {
+        if (typeof filename != 'string')
+            return false;
+
+        return (
+            filename.length &&
+            filename[0] == '/' &&
+            filename[filename.length - 1] != '/' &&
+            filename.indexOf('/.') == -1
+        );
+    }
+
+    /**
+     * Set variable
+     * @param {string} filename                     Variable path
+     * @param {*} value                             Variable value
+     * @return {Promise}
+     */
+    setVar(filename, value) {
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this._dataDir, parts.join('/'));
 
-        return this._filer.lockRead(path.join(directory, 'vars.json'))
+        return this._filer.createDirectory(directory)
+            .then(() => {
+                return this._filer.createFile(path.join(directory, '.vars.json'));
+            })
+            .then(() => {
+                return this._filer.lockUpdate(
+                        path.join(directory, '.vars.json'),
+                        content => {
+                            return new Promise((resolve, reject) => {
+                                try {
+                                    let json = {};
+                                    if (content.trim().length)
+                                        json = JSON.parse(content.trim());
+                                    json[name] = value;
+                                    resolve(JSON.stringify(json) + '\n');
+                                } catch (error) {
+                                    reject(error);
+                                }
+                            });
+                        }
+                    );
+            });
+    }
+
+    /**
+     * Get variable
+     * @param {string} filename                     Variable path
+     * @return {Promise}
+     */
+    getVar(filename) {
+        let parts = filename.split('/');
+        let name = parts.pop();
+        let directory = path.join(this._dataDir, parts.join('/'));
+
+        return this._filer.lockRead(path.join(directory, '.vars.json'))
             .then(content => {
                 if (content)
                     content = content.trim();

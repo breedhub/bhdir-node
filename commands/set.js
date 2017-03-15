@@ -1,6 +1,6 @@
 /**
- * Get command
- * @module commands/get
+ * Set command
+ * @module commands/set
  */
 const debug = require('debug')('bhdir:command');
 const path = require('path');
@@ -11,7 +11,7 @@ const SocketWrapper = require('socket-wrapper');
 /**
  * Command class
  */
-class Get {
+class Set {
     /**
      * Create the service
      * @param {App} app                 The application
@@ -25,11 +25,11 @@ class Get {
     }
 
     /**
-     * Service name is 'commands.get'
+     * Service name is 'commands.set'
      * @type {string}
      */
     static get provides() {
-        return 'commands.get';
+        return 'commands.set';
     }
 
     /**
@@ -46,30 +46,55 @@ class Get {
      * @return {Promise}
      */
     run(argv) {
-        if (argv['_'].length < 2)
+        if (argv['_'].length < 3)
             return this._help.helpGet(argv);
 
-        let getPath = argv['_'][1];
+        let setPath = argv['_'][1];
+        let setValue = argv['_'][2];
         let sockName = argv['z'];
+
+        switch (argv['t'] || 'string') {
+            case 'string':
+                break;
+            case 'number':
+                try {
+                    setValue = parseFloat(setValue);
+                } catch (error) {
+                    this.error(`Could not parse number: ${error.message}`);
+                }
+                break;
+            case 'boolean':
+                setValue = (setValue.toLowerCase() == 'true');
+                break;
+            case 'json':
+                try {
+                    setValue = JSON.parse(setValue);
+                } catch (error) {
+                    this.error(`Could not parse JSON: ${error.message}`);
+                }
+                break;
+            default:
+                this.error('Invalid type');
+        }
 
         let request = {
             id: uuid.v1(),
-            command: 'get',
+            command: 'set',
             args: [
-                getPath,
+                setPath,
+                setValue
             ]
         };
 
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
             .then(reply => {
                 let response = JSON.parse(reply.toString());
-                if (response.id != request.id || !response.results.length)
+                if (response.id != request.id)
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)
                     this.error(`Error: ${response.message}`);
 
-                console.log(response.results[0]);
                 process.exit(0);
             })
             .catch(error => {
@@ -122,4 +147,4 @@ class Get {
     }
 }
 
-module.exports = Get;
+module.exports = Set;

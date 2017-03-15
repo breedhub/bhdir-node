@@ -1,15 +1,15 @@
 /**
- * Get event
- * @module daemon/events/get
+ * Set event
+ * @module daemon/events/set
  */
 const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Get event class
+ * Set event class
  */
-class Get {
+class Set {
     /**
      * Create service
      * @param {App} app                             The application
@@ -23,11 +23,11 @@ class Get {
     }
 
     /**
-     * Service name is 'modules.daemon.events.get'
+     * Service name is 'modules.daemon.events.set'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.get';
+        return 'modules.daemon.events.set';
     }
 
     /**
@@ -48,38 +48,34 @@ class Get {
         if (!client)
             return;
 
-        debug(`Got GET command`);
+        debug(`Got SET command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (success) {
-                reply.results = [
-                    value,
-                ];
-            } else {
+            if (!success)
                 reply.message = value;
-            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending GET response`);
+            debug(`Sending SET response`);
             this.daemon.send(id, data);
         };
 
-        if (message.args.length != 1)
+        if (message.args.length != 2)
             return reply(false, 'Invalid arguments list');
 
         let name = message.args[0];
+        let value = message.args[1];
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.getVar(name)
-            .then(result => {
-                reply(true, result);
+        this.directory.setVar(name, value)
+            .then(() => {
+                reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Get.handle()'));
+                this._logger.error(new WError(error, 'Set.handle()'));
             });
     }
 
@@ -106,4 +102,4 @@ class Get {
     }
 }
 
-module.exports = Get;
+module.exports = Set;
