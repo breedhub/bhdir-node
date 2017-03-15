@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const argv = require('minimist')(process.argv.slice(2));
 const fs = require('fs-ext');
 const path = require('path');
 const merge = require('merge');
@@ -21,14 +20,9 @@ try {
 }
 
 const daemonName = `${config.project}/${config.instance}`;
-const pidFile = argv['p'];
+const pidFile = '/var/run/bhdir/daemon.pid';
 const restartPause = 1000;
 const maxBufferLength = 10000;
-
-if (!pidFile || !argv['_'].length) {
-    console.error('Usage:\tdaemon -p <pidfile> <server-name> [... <server-name>]');
-    process.exit(1);
-}
 
 try {
     fs.accessSync(pidFile, fs.constants.F_OK);
@@ -80,7 +74,7 @@ fs.writeSync(fd, pidBuffer, 0, pidBuffer.length, null);
 
 function restart() {
     let buffer = '';
-    let proc = runner.spawn('node', [ path.join(__dirname, 'run') ].concat(argv['_']));
+    let proc = runner.spawn('node', [ path.join(__dirname, 'run'), 'directory', 'watcher' ]);
     proc.cmd.on('data', data => {
         process.stdout.write(data);
         buffer += data.toString();
