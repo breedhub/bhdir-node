@@ -224,8 +224,7 @@ class Watcher extends EventEmitter {
      */
     onChangeRoot(eventType, filename) {
         debug(`Root event: ${eventType}, ${filename}`);
-        if (eventType == 'rename')
-            this._watchUpdates();
+        this._watchUpdates();
     }
 
     /**
@@ -244,41 +243,39 @@ class Watcher extends EventEmitter {
     onChangeUpdates(eventType, filename) {
         debug(`Updates event: ${eventType}, ${filename}`);
         let updatesPath = path.join(this._rootDir, 'updates');
-        if (eventType == 'rename') {
-            try {
-                let updates = [];
-                let files = fs.readdirSync(updatesPath);
-                for (let file of files) {
-                    if (this.updates.has(file))
-                        continue;
+        try {
+            let updates = [];
+            let files = fs.readdirSync(updatesPath);
+            for (let file of files) {
+                if (this.updates.has(file))
+                    continue;
 
-                    let update = fs.readFileSync(path.join(updatesPath, file), 'utf8');
-                    try {
-                        let json = JSON.parse(update);
-                        if (!json.path)
-                            throw new Error('No path');
+                let update = fs.readFileSync(path.join(updatesPath, file), 'utf8');
+                try {
+                    let json = JSON.parse(update);
+                    if (!json.path)
+                        throw new Error('No path');
 
-                        json.timestamp = Date.now();
-                        this.updates.set(file, json);
+                    json.timestamp = Date.now();
+                    this.updates.set(file, json);
 
-                        let parts = file.split('.');
-                        if (parts.length) {
-                            parts = parts[0].split('-');
-                            if (parts.length >= 2 && parts[1] != this._sessionId)
-                                updates.push(json);
-                        }
-                    } catch (error) {
-                        fs.unlinkSync(path.join(updatesPath, file));
+                    let parts = file.split('.');
+                    if (parts.length) {
+                        parts = parts[0].split('-');
+                        if (parts.length >= 2 && parts[1] != this._sessionId)
+                            updates.push(json);
                     }
+                } catch (error) {
+                    fs.unlinkSync(path.join(updatesPath, file));
                 }
-
-                for (let update of updates) {
-                    debug(`Path updated: ${update.path}`);
-                    this.notify(update.path);
-                }
-            } catch (error) {
-                this._logger.error(new WError(error, 'Watcher._watchUpdates'));
             }
+
+            for (let update of updates) {
+                debug(`Path updated: ${update.path}`);
+                this.notify(update.path);
+            }
+        } catch (error) {
+            this._logger.error(new WError(error, 'Watcher._watchUpdates'));
         }
     }
 
