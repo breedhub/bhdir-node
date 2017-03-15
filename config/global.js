@@ -9,5 +9,6 @@ module.exports = {
     autoload: [
         '!src/servers',
         '!src/services',
+        'commands',
     ],
 };
