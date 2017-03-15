@@ -2,7 +2,7 @@
  * Install command
  * @module commands/install
  */
-const debug = require('debug')('bhid:command');
+const debug = require('debug')('bhdir:command');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

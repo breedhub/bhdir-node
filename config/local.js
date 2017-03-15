@@ -16,6 +16,12 @@ module.exports = {
 
     // Servers
     servers: {
+        directory: {
+            class: 'servers.directory',
+        },
+        watcher: {
+            class: 'servers.watcher',
+        },
     },
 
     // SMTP servers

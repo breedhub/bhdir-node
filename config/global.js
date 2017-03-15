@@ -10,5 +10,6 @@ module.exports = {
         '!src/servers',
         '!src/services',
         'commands',
+        'servers',
     ],
 };
