@@ -107,7 +107,7 @@ class Get {
 
     /**
      * Retrieve watcher server
-     * @return {Directory}
+     * @return {Watcher}
      */
     get watcher() {
         if (this._watcher)

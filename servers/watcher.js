@@ -56,7 +56,7 @@ class Watcher extends EventEmitter {
      * Update entry lifetime
      */
     static get updatesLifetime() {
-        return 10 * 1000; // ms
+        return 30 * 60 * 1000; // ms
     }
 
     /**
@@ -184,6 +184,7 @@ class Watcher extends EventEmitter {
      * @return {Promise}
      */
     touch(filename) {
+        this.notify(filename);
         return new Promise((resolve, reject) => {
             try {
                 let json = {
@@ -200,6 +201,20 @@ class Watcher extends EventEmitter {
                 reject(error);
             }
         });
+    }
+
+    /**
+     * Notify about variable change
+     * @param {string} filename                     Variable path
+     */
+    notify(filename) {
+        let waiting = this.waiting.get(filename);
+        if (!waiting)
+            return;
+
+        for (let cb of waiting.handlers)
+            cb(false);
+        this.waiting.delete(filename);
     }
 
     /**
@@ -245,7 +260,13 @@ class Watcher extends EventEmitter {
 
                         json.timestamp = Date.now();
                         this.updates.set(file, json);
-                        updates.push(json);
+
+                        let parts = file.split('.');
+                        if (parts.length) {
+                            parts = parts[0].split('-');
+                            if (parts.length >= 2 && parts[1] != this._sessionId)
+                                updates.push(json);
+                        }
                     } catch (error) {
                         fs.unlinkSync(path.join(updatesPath, file));
                     }
@@ -253,13 +274,7 @@ class Watcher extends EventEmitter {
 
                 for (let update of updates) {
                     debug(`Path updated: ${update.path}`);
-                    let waiting = this.waiting.get(update.path);
-                    if (!waiting)
-                        continue;
-
-                    for (let cb of waiting.handlers)
-                        cb(false);
-                    this.waiting.delete(update.path);
+                    this.notify(update.path);
                 }
             } catch (error) {
                 this._logger.error(new WError(error, 'Watcher._watchUpdates'));

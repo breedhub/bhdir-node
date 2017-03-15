@@ -149,7 +149,10 @@ class Directory extends EventEmitter {
                             });
                         }
                     );
-            });
+            })
+            .then(() => {
+                this._watcher.notify(filename);
+            })
     }
 
     /**
@@ -178,6 +181,17 @@ class Directory extends EventEmitter {
 
                 throw error;
             });
+    }
+
+    /**
+     * Retrieve watcher server
+     * @return {Watcher}
+     */
+    get _watcher() {
+        if (this._watcher_instance)
+            return this._watcher_instance;
+        this._watcher_instance = this._app.get('servers').get('watcher');
+        return this._watcher_instance;
     }
 }
 
