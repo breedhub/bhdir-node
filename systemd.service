@@ -1,0 +1,19 @@
+[Unit]
+Description=Breedhub Directory
+
+[Service]
+Type=forking
+ExecStartPre=-/bin/mkdir /var/run/bhdir
+ExecStart=/usr/bin/node /usr/bin/bhdird
+ExecStopPost=-/bin/rm /var/run/bhdir/daemon.pid
+PIDFile=/var/run/bhdir/daemon.pid
+Restart=always
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=bhdir
+User=root
+Group=root
+#PermissionsStartOnly=true
+
+[Install]
+WantedBy=multi-user.target

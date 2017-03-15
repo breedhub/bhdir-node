@@ -1,0 +1,48 @@
+#!/bin/sh
+# Start/stop the bhdir daemon.
+#
+### BEGIN INIT INFO
+# Provides:          bhdir
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Breedhub Directory
+# Description:       Breedhub Directory is a p2p directory service
+### END INIT INFO
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+DESC="bhdir daemon"
+NAME=bhdir
+DAEMON=/usr/bin/bhdird
+PIDFILE=/var/run/bhdir/daemon.pid
+SCRIPTNAME=/etc/init.d/"$NAME"
+
+test -f $DAEMON || exit 0
+
+. /lib/lsb/init-functions
+
+case "$1" in
+start)	log_daemon_msg "Starting bhdir daemon" "bhdir"
+        mkdir /var/run/bhdir > /dev/null 2>&1
+        start_daemon -p $PIDFILE $DAEMON $EXTRA_OPTS
+        log_end_msg $?
+	;;
+stop)	log_daemon_msg "Stopping bhdir daemon" "bhdir"
+        killproc -p $PIDFILE $DAEMON
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && [ -e "$PIDFILE" ] && rm -f $PIDFILE
+        log_end_msg $RETVAL
+        ;;
+restart) log_daemon_msg "Restarting bhdir daemon" "bhdir"
+        $0 stop
+        $0 start
+        ;;
+status)
+        status_of_proc -p $PIDFILE $DAEMON $NAME && exit 0 || exit $?
+        ;;
+*)	log_action_msg "Usage: /etc/init.d/bhdir {start|stop|restart|status}"
+        exit 2
+        ;;
+esac
+exit 0
