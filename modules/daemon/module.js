@@ -61,6 +61,12 @@ class Daemon {
         let get = this._app.get('modules.daemon.events.get');
         server.on('get', get.handle.bind(get));
 
+        let wait = this._app.get('modules.daemon.events.wait');
+        server.on('wait', wait.handle.bind(wait));
+
+        let touch = this._app.get('modules.daemon.events.touch');
+        server.on('touch', touch.handle.bind(touch));
+
         return Promise.resolve();
     }
 }

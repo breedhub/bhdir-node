@@ -1,15 +1,15 @@
 /**
- * Get event
- * @module daemon/events/get
+ * Wait event
+ * @module daemon/events/wait
  */
 const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Get event class
+ * Wait event class
  */
-class Get {
+class Wait {
     /**
      * Create service
      * @param {App} app                             The application
@@ -23,11 +23,11 @@ class Get {
     }
 
     /**
-     * Service name is 'modules.daemon.events.get'
+     * Service name is 'modules.daemon.events.wait'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.get';
+        return 'modules.daemon.events.wait';
     }
 
     /**
@@ -48,38 +48,53 @@ class Get {
         if (!client)
             return;
 
-        debug(`Got GET command`);
-        let reply = (success, value) => {
+        debug(`Got WAIT command`);
+        let reply = (success, value, timeout) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
             if (success) {
-                reply.results = [
-                    value,
-                ];
+                reply.timeout = timeout;
+                if (!timeout) {
+                    reply.results = [
+                        value,
+                    ];
+                }
             } else {
                 reply.message = value;
             }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending GET response`);
+            debug(`Sending WAIT response`);
             this.daemon.send(id, data);
         };
 
-        if (message.args.length != 1)
+        if (message.args.length != 2)
             return reply(false, 'Invalid arguments list');
 
         let name = message.args[0];
+        let timeout = message.args[1];
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
+        try {
+            timeout = parseInt(timeout);
+        } catch (error) {
+            return reply(false, 'Invalid timeout');
+        }
 
-        this.directory.getVar(name)
-            .then(result => {
-                reply(true, result);
+        this.watcher.wait(name, timeout)
+            .then(timeout => {
+                if (timeout)
+                    return reply(true, null, true);
+
+                return this.directory.getVar(name)
+                    .then(result => {
+                        reply(true, result, false);
+                    });
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Get.handle()'));
+                this._logger.error(new WError(error, 'Wait.handle()'));
             });
     }
 
@@ -117,4 +132,4 @@ class Get {
     }
 }
 
-module.exports = Get;
+module.exports = Wait;

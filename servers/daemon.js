@@ -253,6 +253,12 @@ class Daemon extends EventEmitter {
                 case 'get':
                     this.emit('get', id, message);
                     break;
+                case 'wait':
+                    this.emit('wait', id, message);
+                    break;
+                case 'touch':
+                    this.emit('touch', id, message);
+                    break;
             }
         } catch (error) {
             this._logger.error(new WError(error, 'Daemon.onMessage()'));

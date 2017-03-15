@@ -100,6 +100,17 @@ class Set {
         this._directory = this._app.get('servers').get('directory');
         return this._directory;
     }
+
+    /**
+     * Retrieve watcher server
+     * @return {Directory}
+     */
+    get watcher() {
+        if (this._watcher)
+            return this._watcher;
+        this._watcher = this._app.get('servers').get('watcher');
+        return this._watcher;
+    }
 }
 
 module.exports = Set;

@@ -1,15 +1,15 @@
 /**
- * Get event
- * @module daemon/events/get
+ * Touch event
+ * @module daemon/events/touch
  */
 const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Get event class
+ * Touch event class
  */
-class Get {
+class Touch {
     /**
      * Create service
      * @param {App} app                             The application
@@ -23,11 +23,11 @@ class Get {
     }
 
     /**
-     * Service name is 'modules.daemon.events.get'
+     * Service name is 'modules.daemon.events.touch'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.get';
+        return 'modules.daemon.events.touch';
     }
 
     /**
@@ -48,21 +48,16 @@ class Get {
         if (!client)
             return;
 
-        debug(`Got GET command`);
+        debug(`Got TOUCH command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (success) {
-                reply.results = [
-                    value,
-                ];
-            } else {
+            if (!success)
                 reply.message = value;
-            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending GET response`);
+            debug(`Sending TOUCH response`);
             this.daemon.send(id, data);
         };
 
@@ -73,13 +68,13 @@ class Get {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.getVar(name)
-            .then(result => {
-                reply(true, result);
+        this.watcher.touch(name)
+            .then(() => {
+               reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Get.handle()'));
+                this._logger.error(new WError(error, 'Wait.handle()'));
             });
     }
 
@@ -117,4 +112,4 @@ class Get {
     }
 }
 
-module.exports = Get;
+module.exports = Touch;
