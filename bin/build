@@ -1,0 +1,38 @@
+#!/bin/sh
+
+basepath=`dirname "$0"`
+basepath=`cd "$basepath" && cd .. && pwd`
+if [ ! -d "$basepath" ]; then
+    echo "Could not get base path"
+    exit 1
+fi
+
+if [ "$1" = "" ]; then
+    printf "Usage:\tbuild docs\n"
+    exit 0
+fi
+
+case $1 in
+    "docs")
+        if [ ! -x "$basepath/node_modules/.bin/jsdoc" ]; then
+            echo "jsDoc is not installed"
+            exit 1
+        fi
+        rm -rf "$basepath/docs"
+        "$basepath/node_modules/.bin/jsdoc" \
+            -c "$basepath/jsdoc.json" \
+            -t "$basepath/node_modules/ink-docstrap/template" \
+            -R README.md -d "$basepath/docs" -r \
+            "$basepath/node_modules/arpen/src" \
+            "$basepath/middleware" \
+            "$basepath/models" \
+            "$basepath/modules/index/module.js" \
+            "$basepath/modules/index/routes" \
+            "$basepath/repositories" \
+            "$basepath/subscribers"
+        ;;
+    *)
+        echo "Unknown command"
+        exit 1
+        ;;
+esac

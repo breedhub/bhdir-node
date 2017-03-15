@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+
+const argv = require('minimist')(process.argv.slice(2));
+const fs = require('fs-ext');
+const path = require('path');
+const merge = require('merge');
+const stripAnsi = require('strip-ansi');
+const Runner = require(path.join(__dirname, '..', 'node_modules', 'arpen', 'src', 'services', 'runner.js'));
+const Emailer = require(path.join(__dirname, '..', 'node_modules', 'arpen', 'src', 'services', 'emailer.js'));
+
+let config, runner, emailer;
+try {
+    let globalConf = require(path.join(__dirname, '..', 'config', 'global.js'));
+    let localConf = require(path.join(__dirname, '..', 'config', 'local.js'));
+    config = merge.recursive(true, globalConf, localConf);
+    runner = new Runner();
+    emailer = new Emailer(config);
+} catch (error) {
+    console.error(error.message);
+    process.exit(1);
+}
+
+const daemonName = `${config.project}/${config.instance}`;
+const pidFile = argv['p'];
+const restartPause = 1000;
+const maxBufferLength = 10000;
+
+if (!pidFile || !argv['_'].length) {
+    console.error('Usage:\tdaemon -p <pidfile> <server-name> [... <server-name>]');
+    process.exit(1);
+}
+
+try {
+    fs.accessSync(pidFile, fs.constants.F_OK);
+    try {
+        fs.accessSync(pidFile, fs.constants.R_OK | fs.constants.W_OK);
+    } catch (error) {
+        console.error(`No read-write access to ${pidFile}`);
+        process.exit(1);
+    }
+} catch (error) {
+    try {
+        fs.closeSync(fs.openSync(pidFile, 'w'));
+    } catch (error) {
+        console.error(`Could not create ${pidFile}`);
+        process.exit(1);
+    }
+}
+
+require('daemon')();
+
+let fd;
+try {
+    fd = fs.openSync(pidFile, 'r+');
+} catch (error) {
+    console.error(error.message);
+    process.exit(1);
+}
+
+try {
+    fs.flockSync(fd, 'exnb');
+} catch (error) {
+    process.exit(0);
+}
+
+function exit(rc) {
+    fs.closeSync(fd);
+    try {
+        fs.unlinkSync(pidFile);
+    } catch (error) {
+        // do nothing
+    }
+    process.exit(rc);
+}
+process.on('SIGTERM', exit);
+
+let pidBuffer = Buffer(process.pid.toString() + '\n');
+fs.ftruncateSync(fd);
+fs.writeSync(fd, pidBuffer, 0, pidBuffer.length, null);
+
+function restart() {
+    let buffer = '';
+    let proc = runner.spawn('node', [ path.join(__dirname, 'run') ].concat(argv['_']));
+    proc.cmd.on('data', data => {
+        process.stdout.write(data);
+        buffer += data.toString();
+        if (buffer.length > maxBufferLength)
+            buffer = buffer.slice(buffer.length - maxBufferLength);
+    });
+    proc.promise
+        .then(result => {
+            if (result.code === 0)
+                exit(0);
+
+            if (!config.email.daemon.enabled)
+                return setTimeout(() => { restart(); }, restartPause);
+
+            return emailer.send({
+                    from: config.email.from,
+                    to: config.email.daemon.to,
+                    subject: `Exit code ${result.code} of ${daemonName}`,
+                    text: stripAnsi(buffer),
+                })
+                .then(function () {
+                    setTimeout(() => { restart(); }, restartPause);
+                });
+        })
+        .catch(error => {
+            if (!config.email.daemon.enabled)
+                exit(1);
+
+            return emailer.send({
+                    from: config.email.from,
+                    to: config.email.daemon.to,
+                    subject: `Failed to start ${daemonName}`,
+                    text: error.message,
+                })
+                .then(function () {
+                    exit(1);
+                });
+        });
+}
+restart();

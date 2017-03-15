@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+
+const fs = require('fs-ext');
+
+let args = process.argv.slice(2);
+let pidFile = args.shift();
+let signal = args.shift();
+if (!pidFile) {
+    console.error('Usage:\tkill <pidfile> [<signal>]');
+    process.exit(1);
+}
+if (!signal)
+    signal = 'SIGTERM';
+
+try {
+    fs.accessSync(pidFile, fs.constants.F_OK);
+    try {
+        fs.accessSync(pidFile, fs.constants.R_OK);
+    } catch (error) {
+        console.error(`File ${pidFile} is not readable`);
+        process.exit(1);
+    }
+} catch (error) {
+    process.exit(0);
+}
+
+let fd;
+try {
+    fd = fs.openSync(pidFile, 'r');
+} catch (error) {
+    console.error(error.message);
+    process.exit(1);
+}
+
+try {
+    fs.flockSync(fd, 'exnb');
+    process.exit(0);
+} catch (error) {
+    fs.fstat(fd, (err, stats) => {
+        if (err) {
+            console.error(error.message);
+            process.exit(1);
+        }
+
+        if (stats.size === 0) {
+            console.error('Invalid PID file');
+            process.exit(1);
+        }
+
+        let buffer = Buffer.allocUnsafe(stats.size);
+        fs.read(
+            fd,
+            buffer,
+            0,
+            buffer.length,
+            null,
+            (err, bytesRead, buffer) => {
+                if (err) {
+                    console.error(error.message);
+                    process.exit(1);
+                }
+                if (bytesRead != stats.size) {
+                    console.error('Could not read PID file');
+                    process.exit(1);
+                }
+
+                try {
+                    let pid = parseInt(buffer.toString().trim());
+                    if (isNaN(pid)) {
+                        console.error('PID file does not contain a pid');
+                        process.exit(1);
+                    }
+                    process.kill(pid, signal);
+                    process.exit(0);
+                } catch (error) {
+                    console.error(error.message);
+                    process.exit(1);
+                }
+            }
+        );
+    });
+}

@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+
+const argv = require('minimist')(process.argv.slice(2));
+const path = require('path');
+const Console = require('arpen').Console;
+
+if (argv['_'].length === 0 || (argv['_'].length === 1 && argv['_'][0] == 'help'))
+    argv['_'].push('help');
+
+const console = new Console(path.join(__dirname, '..'), argv);
+console.run();

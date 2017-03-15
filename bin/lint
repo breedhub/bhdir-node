@@ -1,0 +1,32 @@
+#!/bin/sh
+
+basepath=`dirname "$0"`
+basepath=`cd "$basepath" && cd .. && pwd`
+if [ ! -d "$basepath" ]; then
+    echo "Could not get base path"
+    exit 1
+fi
+
+if [ "$1" = "" ]; then
+    printf "Usage:\tlint back|front\n"
+    exit 0
+fi
+
+case $1 in
+    "back")
+        if [ ! -x "$basepath/node_modules/.bin/jshint" ]; then
+            echo "jsHint is not installed"
+            exit 1
+        fi
+        find "$basepath/node_modules/arpen/src" -type f | xargs "$basepath/node_modules/.bin/jshint"
+        find "$basepath/middleware" -type f | xargs "$basepath/node_modules/.bin/jshint"
+        find "$basepath/models" -type f | xargs "$basepath/node_modules/.bin/jshint"
+        find "$basepath/modules" -type f -name "*.js" | xargs "$basepath/node_modules/.bin/jshint"
+        find "$basepath/repositories" -type f | xargs "$basepath/node_modules/.bin/jshint"
+        find "$basepath/subscribers" -type f | xargs "$basepath/node_modules/.bin/jshint"
+        ;;
+    *)
+        echo "Unknown command"
+        exit 1
+        ;;
+esac
