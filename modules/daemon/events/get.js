@@ -2,7 +2,6 @@
  * Get event
  * @module daemon/events/get
  */
-const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
@@ -48,7 +47,7 @@ class Get {
         if (!client)
             return;
 
-        debug(`Got GET command`);
+        this._logger.debug('get', `Got GET command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -62,7 +61,7 @@ class Get {
                 reply.message = value;
             }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending GET response`);
+            this._logger.debug('get', `Sending GET response`);
             this.daemon.send(id, data);
         };
 

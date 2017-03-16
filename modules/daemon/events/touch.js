@@ -2,7 +2,6 @@
  * Touch event
  * @module daemon/events/touch
  */
-const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
@@ -50,7 +49,7 @@ class Touch {
         if (!client)
             return;
 
-        debug(`Got TOUCH command`);
+        this._logger.debug('touch', `Got TOUCH command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -59,7 +58,7 @@ class Touch {
             if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending TOUCH response`);
+            this._logger.debug('touch', `Sending TOUCH response`);
             this.daemon.send(id, data);
         };
 

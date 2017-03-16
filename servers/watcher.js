@@ -2,7 +2,6 @@
  * Sync directory watcher
  * @module servers/watcher
  */
-const debug = require('debug')('bhdir:watcher');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -116,7 +115,7 @@ class Watcher extends EventEmitter {
                 Promise.resolve()
             )
             .then(() => {
-                debug('Starting the server');
+                this._logger.debug('watcher', 'Starting the server');
                 this._sessionId = this._util.getRandomString(8, {lower: true, upper: true, digits: true, special: false});
 
                 try {
@@ -126,7 +125,7 @@ class Watcher extends EventEmitter {
                     process.exit(1);
                 }
 
-                debug(`Watching ${this._rootDir}`);
+                this._logger.debug('watcher', `Watching ${this._rootDir}`);
                 this.rootWatcher = fs.watch(this._rootDir, this.onChangeRoot.bind(this));
                 if (!this.rootWatcher)
                     throw new Error('Could not install root watcher');
@@ -172,7 +171,7 @@ class Watcher extends EventEmitter {
 
         return new Promise((resolve) => {
             let cb = result => {
-                debug(`Wait on ${filename} timeout: ${result}`);
+                this._logger.debug('watcher', `Wait on ${filename} timeout: ${result}`);
                 resolve(result);
             };
             info.handlers.add(cb);
@@ -225,7 +224,7 @@ class Watcher extends EventEmitter {
      * @param {string} [filename]                       Name of the file
      */
     onChangeRoot(eventType, filename) {
-        debug(`Root event: ${eventType}, ${filename}`);
+        this._logger.debug('watcher', `Root event: ${eventType}, ${filename}`);
         this._watchUpdates();
     }
 
@@ -243,7 +242,7 @@ class Watcher extends EventEmitter {
      * @param {string} [filename]                       Name of the file
      */
     onChangeUpdates(eventType, filename) {
-        debug(`Updates event: ${eventType}, ${filename}`);
+        this._logger.debug('watcher', `Updates event: ${eventType}, ${filename}`);
         let updatesPath = path.join(this._rootDir, 'updates');
         try {
             let updates = [];
@@ -270,7 +269,7 @@ class Watcher extends EventEmitter {
             }
 
             for (let update of updates) {
-                debug(`Path updated: ${update.path}`);
+                this._logger.debug('watcher', `Path updated: ${update.path}`);
                 this.notify(update.path);
                 this._cacher.unset(update.path)
                     .catch(error => {
@@ -298,7 +297,7 @@ class Watcher extends EventEmitter {
         let expiration = Date.now() - this.constructor.updatesLifetime;
         for (let [ name, info ] of this.updates) {
             if (info.timestamp < expiration) {
-                debug(`Update expired: ${name}`);
+                this._logger.debug('watcher', `Update expired: ${name}`);
                 fs.unlinkSync(path.join(updatesPath, name));
                 this.updates.delete(name);
             }
@@ -329,7 +328,7 @@ class Watcher extends EventEmitter {
             if (!updates)
                 fs.mkdirSync(updatesPath, 0o755);
 
-            debug(`Watching ${updatesPath}`);
+            this._logger.debug('watcher', `Watching ${updatesPath}`);
             this.updatesWatcher = fs.watch(updatesPath, this.onChangeUpdates.bind(this));
             if (!this.updatesWatcher)
                 throw new Error('Could not install updates watcher');

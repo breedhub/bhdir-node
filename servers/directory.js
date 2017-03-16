@@ -2,7 +2,6 @@
  * Directory data server
  * @module servers/directory
  */
-const debug = require('debug')('bhdir:directory');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -98,7 +97,7 @@ class Directory extends EventEmitter {
                 Promise.resolve()
             )
             .then(() => {
-                debug('Starting the server');
+                this._logger.debug('directory', 'Starting the server');
             });
     }
 
@@ -126,7 +125,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     setVar(filename, value) {
-        debug(`Setting ${filename} to ${value}`);
+        this._logger.debug('directory', `Setting ${filename} to ${value}`);
 
         let parts = filename.split('/');
         let name = parts.pop();
@@ -177,7 +176,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     getVar(filename) {
-        debug(`Getting ${filename}`);
+        this._logger.debug('directory', `Getting ${filename}`);
 
         let parts = filename.split('/');
         let name = parts.pop();

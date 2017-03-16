@@ -2,7 +2,6 @@
  * Install command
  * @module commands/install
  */
-const debug = require('debug')('bhdir:command');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -15,11 +14,13 @@ class Install {
      * Create the service
      * @param {App} app                 The application
      * @param {object} config           Configuration
+     * @param {Logger} logger           Logger service
      * @param {Runner} runner           Runner service
      */
-    constructor(app, config, runner) {
+    constructor(app, config, logger, runner) {
         this._app = app;
         this._config = config;
+        this._logger = logger;
         this._runner = runner;
     }
 
@@ -36,7 +37,7 @@ class Install {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'runner' ];
+        return [ 'app', 'config', 'logger', 'runner' ];
     }
 
     /**
@@ -60,10 +61,10 @@ class Install {
                 let configDir;
                 if (os.platform() == 'freebsd') {
                     configDir = '/usr/local/etc/bhdir';
-                    debug(`Platform: FreeBSD`);
+                    this._logger.debug('command', `Platform: FreeBSD`);
                 } else {
                     configDir = '/etc/bhdir';
-                    debug(`Platform: Linux`);
+                    this._logger.debug('command', `Platform: Linux`);
                 }
 
                 try {
@@ -113,7 +114,7 @@ class Install {
                 }
 
                 try {
-                    debug('Creating default config');
+                    this._logger.debug('command', 'Creating default config');
                     fs.accessSync(path.join(configDir, 'bhdir.conf'), fs.constants.F_OK);
                 } catch (error) {
                     try {
@@ -127,7 +128,7 @@ class Install {
                 }
                 try {
                     fs.accessSync('/etc/systemd/system', fs.constants.F_OK);
-                    debug('Creating systemd service');
+                    this._logger.debug('command', 'Creating systemd service');
                     let service = fs.readFileSync(path.join(__dirname, '..', 'systemd.service'), {encoding: 'utf8'});
                     fs.writeFileSync('/etc/systemd/system/bhdir.service', service, {mode: 0o644});
                 } catch (error) {
@@ -135,7 +136,7 @@ class Install {
                 }
                 try {
                     fs.accessSync('/etc/init.d', fs.constants.F_OK);
-                    debug('Creating sysvinit service');
+                    this._logger.debug('command', 'Creating sysvinit service');
                     let service = fs.readFileSync(path.join(__dirname, '..', 'sysvinit.service'), {encoding: 'utf8'});
                     fs.writeFileSync('/etc/init.d/bhdir', service, {mode: 0o755});
                 } catch (error) {

@@ -2,7 +2,6 @@
  * Stop command
  * @module commands/stop
  */
-const debug = require('debug')('bhdir:command');
 const path = require('path');
 
 /**
@@ -74,7 +73,7 @@ class Stop {
                                 if (result.code != 0)
                                     process.exit(1);
 
-                                if (++tries > 10) {
+                                if (++tries > 60) {
                                     console.error('Daemon would not exit');
                                     process.exit(1);
                                 }

@@ -2,7 +2,6 @@
  * Help command
  * @module commands/help
  */
-const debug = require('debug')('bhdir:command');
 
 /**
  * Command class

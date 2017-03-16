@@ -2,7 +2,6 @@
  * Wait event
  * @module daemon/events/wait
  */
-const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
@@ -48,7 +47,7 @@ class Wait {
         if (!client)
             return;
 
-        debug(`Got WAIT command`);
+        this._logger.debug('wait', `Got WAIT command`);
         let reply = (success, value, timeout) => {
             let reply = {
                 id: message.id,
@@ -65,7 +64,7 @@ class Wait {
                 reply.message = value;
             }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending WAIT response`);
+            this._logger.debug('wait', `Sending WAIT response`);
             this.daemon.send(id, data);
         };
 

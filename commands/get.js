@@ -2,7 +2,6 @@
  * Get command
  * @module commands/get
  */
-const debug = require('debug')('bhdir:command');
 const path = require('path');
 const net = require('net');
 const uuid = require('uuid');
@@ -16,11 +15,13 @@ class Get {
      * Create the service
      * @param {App} app                 The application
      * @param {object} config           Configuration
+     * @param {Logger} logger           Logger service
      * @param {Help} help               Help command
      */
-    constructor(app, config, help) {
+    constructor(app, config, logger, help) {
         this._app = app;
         this._config = config;
+        this._logger = logger;
         this._help = help;
     }
 
@@ -37,7 +38,7 @@ class Get {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'commands.help' ];
+        return [ 'app', 'config', 'logger', 'commands.help' ];
     }
 
     /**
@@ -96,13 +97,13 @@ class Get {
             };
 
             let socket = net.connect(sock, () => {
-                debug('Connected to daemon');
+                this._logger.debug('command', 'Connected to daemon');
                 socket.removeListener('error', onError);
                 socket.once('error', error => { this.error(error.message) });
 
                 let wrapper = new SocketWrapper(socket);
                 wrapper.on('receive', data => {
-                    debug('Got daemon reply');
+                    this._logger.debug('command', 'Got daemon reply');
                     resolve(data);
                     socket.end();
                 });

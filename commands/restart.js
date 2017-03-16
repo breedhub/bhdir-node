@@ -2,7 +2,6 @@
  * Restart command
  * @module commands/restart
  */
-const debug = require('debug')('bhdir:command');
 const path = require('path');
 
 /**

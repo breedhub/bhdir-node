@@ -2,7 +2,6 @@
  * Daemon server
  * @module servers/daemon
  */
-const debug = require('debug')('bhdir:daemon');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -105,14 +104,17 @@ class Daemon extends EventEmitter {
                     json = { version: '?.?.?' };
                 }
 
+                let onExit = signal => {
+                    this._logger.info(`Terminating due to ${signal} signal`, () => { process.exit(0); });
+                    setTimeout(() => { process.exit(0); }, 10000);
+                };
                 this._logger.info(`Daemon v${json.version} started`);
-                process.on('SIGTERM', () => {
-                    this._logger.info('Terminating on SIGTERM signal');
-                    process.exit(0);
-                });
+                process.on('SIGTERM', () => { onExit('SIGTERM'); });
+                process.on('SIGINT', () => { onExit('SIGINT'); });
+                process.on('SIGHUP', () => { onExit('SIGHUP'); });
             })
             .then(() => {
-                debug('Starting the server');
+                this._logger.debug('daemon', 'Starting the server');
                 let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
                 try {
                     fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
@@ -240,7 +242,7 @@ class Daemon extends EventEmitter {
      */
     onConnection(socket) {
         let id = uuid.v1();
-        debug(`New socket`);
+        this._logger.debug('daemon', `New socket`);
 
         let client = {
             id: id,
@@ -288,7 +290,7 @@ class Daemon extends EventEmitter {
         }
 
         try {
-            debug(`Client message ${message.command}`);
+            this._logger.debug('daemon', `Client message ${message.command}`);
             switch(message.command) {
                 case 'set':
                     this.emit('set', id, message);
@@ -326,7 +328,7 @@ class Daemon extends EventEmitter {
     onClose(id) {
         let client = this.clients.get(id);
         if (client) {
-            debug(`Client disconnected`);
+            this._logger.debug('daemon', `Client disconnected`);
             if (client.socket) {
                 if (!client.socket.destroyed)
                     client.socket.destroy();

@@ -2,7 +2,6 @@
  * Status command
  * @module commands/status
  */
-const debug = require('debug')('bhdir:command');
 const path = require('path');
 
 /**

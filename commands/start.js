@@ -2,7 +2,6 @@
  * Start command
  * @module commands/start
  */
-const debug = require('debug')('bhdir:command');
 const path = require('path');
 const execFile = require('child_process').execFile;
 

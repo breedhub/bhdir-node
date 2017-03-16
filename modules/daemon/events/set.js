@@ -2,7 +2,6 @@
  * Set event
  * @module daemon/events/set
  */
-const debug = require('debug')('bhdir:daemon');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
@@ -48,7 +47,7 @@ class Set {
         if (!client)
             return;
 
-        debug(`Got SET command`);
+        this._logger.debug('set', `Got SET command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -57,7 +56,7 @@ class Set {
             if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            debug(`Sending SET response`);
+            this._logger.debug('set', `Sending SET response`);
             this.daemon.send(id, data);
         };
 
