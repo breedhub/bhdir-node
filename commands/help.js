@@ -61,7 +61,10 @@ class Help {
         console.log('Commands:');
         console.log('\thelp\t\tPrint help about any other command');
         console.log('\tinstall\t\tRegister the program in the system');
+        console.log('\tset\t\tSet variable value');
         console.log('\tget\t\tGet variable value');
+        console.log('\twait\t\tWait for variable update');
+        console.log('\ttouch\t\tTrigger variable update');
         console.log('\tstart\t\tStart the daemon');
         console.log('\tstop\t\tStop the daemon');
         console.log('\trestart\t\tRestart the daemon');
@@ -89,11 +92,41 @@ class Help {
     }
 
     /**
+     * Set command
+     */
+    helpSet(argv) {
+        console.log('Usage:\tbhdirctl set <path> <value> [-t <type>] [-z <socket>]\n');
+        console.log('\tSet variable to a value. <type> could be one of: string (default), number, boolean and json.');
+        process.exit(0);
+    }
+
+
+    /**
      * Get command
      */
     helpGet(argv) {
         console.log('Usage:\tbhdirctl get <path>\n');
         console.log('\tGet variable value');
+        process.exit(0);
+    }
+
+
+    /**
+     * Get command
+     */
+    helpWait(argv) {
+        console.log('Usage:\tbhdirctl wait <path>\n');
+        console.log('\tWait for variable update event and return new value.');
+        process.exit(0);
+    }
+
+
+    /**
+     * Get command
+     */
+    helpTouch(argv) {
+        console.log('Usage:\tbhdirctl touch <path>\n');
+        console.log('\tTrigger variable update event.');
         process.exit(0);
     }
 
