@@ -56,7 +56,7 @@ class Watcher extends EventEmitter {
      * Update entry lifetime
      */
     static get updatesLifetime() {
-        return 30 * 60 * 1000; // ms
+        return 10 * 60 * 1000; // ms
     }
 
     /**

@@ -5,6 +5,8 @@
 const debug = require('debug')('bhdir:daemon');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const ini = require('ini');
 const net = require('net');
 const uuid = require('uuid');
 const EventEmitter = require('events');
@@ -21,8 +23,9 @@ class Daemon extends EventEmitter {
      * @param {object} config               Configuration
      * @param {Logger} logger               Logger service
      * @param {Filer} filer                 Filer service
+     * @param {Runner} runner               Runner service
      */
-    constructor(app, config, logger, filer) {
+    constructor(app, config, logger, filer, runner) {
         super();
 
         this.server = null;
@@ -33,6 +36,7 @@ class Daemon extends EventEmitter {
         this._config = config;
         this._logger = logger;
         this._filer = filer;
+        this._runner = runner;
     }
 
     /**
@@ -48,7 +52,7 @@ class Daemon extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer' ];
+        return [ 'app', 'config', 'logger', 'filer', 'runner' ];
     }
 
     /**
@@ -109,6 +113,35 @@ class Daemon extends EventEmitter {
             })
             .then(() => {
                 debug('Starting the server');
+                let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                this._socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '600', 8);
+                let user = (bhdirConfig.socket && bhdirConfig.socket.user) || 'root';
+                let group = (bhdirConfig.socket && bhdirConfig.socket.group) || 'wheel';
+
+                return Promise.all([
+                        this._runner.exec('getent', [ 'passwd', user ]),
+                        this._runner.exec('getent', [ 'group', group ]),
+                    ])
+                    .then(([ user, group ]) => {
+                        let userDb = user.stdout.trim().split(':');
+                        if (userDb.length != 7)
+                            return this._logger.error('Socket user not found');
+                        let groupDb = group.stdout.trim().split(':');
+                        if (groupDb.length != 4)
+                            return this._logger.error('Socket group not found');
+
+                        this._socketUser = parseInt(userDb[2]);
+                        this._socketGroup = parseInt(groupDb[2]);
+                    });
+            })
+            .then(() => {
                 try {
                     let sock = path.join('/var', 'run', this._config.project, this._config.instance + '.sock');
                     try {
@@ -183,9 +216,10 @@ class Daemon extends EventEmitter {
     onListening() {
         let sock = `/var/run/${this._config.project}/${this._config.instance}.sock`;
         try {
-            fs.chmodSync(sock, 0o600);
+            fs.chownSync(sock, this._socketUser, this._socketGroup);
+            fs.chmodSync(sock, this._socketMode);
         } catch (error) {
-            // do nothing
+            this._logger.error(`Error updating socket: ${error.message}`);
         }
 
         this._logger.info(`Daemon is listening on ${sock}`);
