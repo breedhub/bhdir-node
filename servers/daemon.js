@@ -123,7 +123,7 @@ class Daemon extends EventEmitter {
                 let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
                 this._socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '600', 8);
                 let user = (bhdirConfig.socket && bhdirConfig.socket.user) || 'root';
-                let group = (bhdirConfig.socket && bhdirConfig.socket.group) || 'wheel';
+                let group = (bhdirConfig.socket && bhdirConfig.socket.group) || (os.platform() == 'freebsd' ? 'wheel' : 'root');
 
                 return Promise.all([
                         this._runner.exec('getent', [ 'passwd', user ]),
