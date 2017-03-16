@@ -131,7 +131,7 @@ class Daemon extends EventEmitter {
                     ])
                     .then(([ user, group ]) => {
                         let userDb = user.stdout.trim().split(':');
-                        if (userDb.length != 7)
+                        if (userDb.length != 6)
                             return this._logger.error('Socket user not found');
                         let groupDb = group.stdout.trim().split(':');
                         if (groupDb.length != 4)
