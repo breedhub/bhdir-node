@@ -143,14 +143,21 @@ class Daemon extends EventEmitter {
             })
             .then(() => {
                 try {
-                    let sock = path.join('/var', 'run', this._config.project, this._config.instance + '.sock');
+                    let sockDir = path.join('/var', 'run', this._config.project);
+                    let sockFile = path.join(sockDir, this._config.instance + '.sock');
                     try {
-                        fs.accessSync(sock, fs.constants.F_OK);
-                        fs.unlinkSync(sock);
+                        fs.accessSync(sockDir, fs.constants.R_OK | fs.constants.W_OK);
+                    } catch (error) {
+                        this._logger.error(`No access to ${sockDir}`);
+                        process.exit(1);
+                    }
+                    try {
+                        fs.accessSync(sockFile, fs.constants.F_OK);
+                        fs.unlinkSync(sockFile);
                     } catch (error) {
                         // do nothing
                     }
-                    this.server.listen(sock);
+                    this.server.listen(sockFile);
                 } catch (error) {
                     throw new WError(error, 'Daemon.start()');
                 }

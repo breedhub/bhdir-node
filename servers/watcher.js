@@ -120,7 +120,8 @@ class Watcher extends EventEmitter {
                 try {
                     fs.accessSync(this._rootDir, fs.constants.F_OK);
                 } catch (error) {
-                    throw new Error(`Directory ${this._rootDir} does not exist`);
+                    this._logger.error(`No access to ${this._rootDir}`);
+                    process.exit(1);
                 }
 
                 debug(`Watching ${this._rootDir}`);

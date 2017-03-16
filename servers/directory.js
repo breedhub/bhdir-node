@@ -20,8 +20,9 @@ class Directory extends EventEmitter {
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
      * @param {Filer} filer                         Filer service
+     * @param {Cacher} cacher                       Cacher service
      */
-    constructor(app, config, logger, filer) {
+    constructor(app, config, logger, filer, cacher) {
         super();
 
         this._name = null;
@@ -29,6 +30,7 @@ class Directory extends EventEmitter {
         this._config = config;
         this._logger = logger;
         this._filer = filer;
+        this._cacher = cacher;
     }
 
     /**
@@ -44,7 +46,7 @@ class Directory extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer' ];
+        return [ 'app', 'config', 'logger', 'filer', 'cacher' ];
     }
 
     /**
