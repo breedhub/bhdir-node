@@ -270,11 +270,16 @@ class Watcher extends EventEmitter {
 
             for (let update of updates) {
                 this._logger.debug('watcher', `Path updated: ${update.path}`);
-                this.notify(update.path);
                 this._cacher.unset(update.path)
-                    .catch(error => {
-                        this._logger.error(new WError(error, 'Watcher._watchUpdates(): unset'));
-                    });
+                    .then(
+                        () => {
+                            this.notify(update.path);
+                        },
+                        error => {
+                            this.notify(update.path);
+                            this._logger.error(new WError(error, 'Watcher._watchUpdates(): unset'));
+                        }
+                    );
             }
         } catch (error) {
             this._logger.error(new WError(error, 'Watcher._watchUpdates()'));
