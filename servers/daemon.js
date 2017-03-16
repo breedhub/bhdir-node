@@ -223,10 +223,10 @@ class Daemon extends EventEmitter {
     onListening() {
         let sock = `/var/run/${this._config.project}/${this._config.instance}.sock`;
         try {
-            if (typeof this._socketUser != 'undefined' && typeof this._socketGroup != 'undefined')
-                fs.chownSync(sock, this._socketUser, this._socketGroup);
             if (typeof this._socketMode != 'undefined')
                 fs.chmodSync(sock, this._socketMode);
+            if (typeof this._socketUser != 'undefined' && typeof this._socketGroup != 'undefined')
+                fs.chownSync(sock, this._socketUser, this._socketGroup);
         } catch (error) {
             this._logger.error(`Error updating socket: ${error.message}`);
         }
