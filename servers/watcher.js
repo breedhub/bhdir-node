@@ -193,7 +193,7 @@ class Watcher extends EventEmitter {
                 let update = path.join(
                     this._rootDir,
                     'updates',
-                    Date.now() + '-' + this._sessionId + '.json'
+                    Date.now() + '.' + this._sessionId + '.json'
                 );
                 fs.writeFileSync(update, JSON.stringify(json) + '\n');
                 resolve();
@@ -260,11 +260,8 @@ class Watcher extends EventEmitter {
                     this.updates.set(file, json);
 
                     let parts = file.split('.');
-                    if (parts.length) {
-                        parts = parts[0].split('-');
-                        if (parts.length >= 2 && parts[1] != this._sessionId)
-                            updates.push(json);
-                    }
+                    if (parts.length >= 3 && parts[1] != this._sessionId)
+                       updates.push(json);
                 } catch (error) {
                     fs.unlinkSync(path.join(updatesPath, file));
                 }
