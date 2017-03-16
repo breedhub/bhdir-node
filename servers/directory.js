@@ -131,8 +131,17 @@ class Directory extends EventEmitter {
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this._dataDir, parts.join('/'));
+        let notified = false;
 
-        return this._filer.createDirectory(directory)
+        return this._cacher.set(filename, value)
+            .then(reply => {
+                if (typeof reply != 'undefined') {
+                    this._watcher.notify(filename);
+                    notified = true;
+                }
+
+                return this._filer.createDirectory(directory);
+            })
             .then(() => {
                 return this._filer.createFile(path.join(directory, '.vars.json'));
             })
@@ -155,6 +164,9 @@ class Directory extends EventEmitter {
                     );
             })
             .then(() => {
+                if (!notified)
+                    this._watcher.notify(filename);
+
                 return this._watcher.touch(filename);
             })
     }
@@ -171,21 +183,35 @@ class Directory extends EventEmitter {
         let name = parts.pop();
         let directory = path.join(this._dataDir, parts.join('/'));
 
-        return this._filer.lockRead(path.join(directory, '.vars.json'))
-            .then(content => {
-                if (content)
-                    content = content.trim();
-                if (!content)
-                    return null;
+        return this._cacher.get(filename)
+            .then(result => {
+                if (typeof result != 'undefined')
+                    return result;
 
-                let json = JSON.parse(content);
-                return json[name] || null;
-            })
-            .catch(error => {
-                if (error.code == 'ENOENT')
-                    return null;
+                return this._filer.lockRead(path.join(directory, '.vars.json'))
+                    .then(
+                        content => {
+                            if (content)
+                                content = content.trim();
+                            if (!content)
+                                return null;
 
-                throw error;
+                            let json = JSON.parse(content);
+                            return json[name] || null;
+                        },
+                        error => {
+                            if (error.code == 'ENOENT')
+                                return null;
+
+                            throw error;
+                        }
+                    )
+                    .then(result => {
+                        return this._cacher.set(filename, result)
+                            .then(() => {
+                                return result;
+                            });
+                    });
             });
     }
 

@@ -15,11 +15,13 @@ class Touch {
      * @param {App} app                             The application
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
+     * @param {Cacher} cacher                       Cacher service
      */
-    constructor(app, config, logger) {
+    constructor(app, config, logger, cacher) {
         this._app = app;
         this._config = config;
         this._logger = logger;
+        this._cacher = cacher;
     }
 
     /**
@@ -35,7 +37,7 @@ class Touch {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger' ];
+        return [ 'app', 'config', 'logger', 'cacher' ];
     }
 
     /**
@@ -68,7 +70,11 @@ class Touch {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.watcher.touch(name)
+        this._cacher.unset(name)
+            .then(() => {
+                this.watcher.notify(name);
+                return this.watcher.touch(name)
+            })
             .then(() => {
                reply(true);
             })

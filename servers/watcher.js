@@ -19,9 +19,10 @@ class Watcher extends EventEmitter {
      * @param {App} app                             Application
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
+     * @param {Cacher} cacher                       Cacher service
      * @param {Util} util                           Util service
      */
-    constructor(app, config, logger, util) {
+    constructor(app, config, logger, cacher, util) {
         super();
 
         this.updates = new Map();
@@ -33,6 +34,7 @@ class Watcher extends EventEmitter {
         this._app = app;
         this._config = config;
         this._logger = logger;
+        this._cacher = cacher;
         this._util = util;
     }
 
@@ -49,7 +51,7 @@ class Watcher extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'util' ];
+        return [ 'app', 'config', 'logger', 'cacher', 'util' ];
     }
 
     /**
@@ -185,7 +187,6 @@ class Watcher extends EventEmitter {
      * @return {Promise}
      */
     touch(filename) {
-        this.notify(filename);
         return new Promise((resolve, reject) => {
             try {
                 let json = {
@@ -271,9 +272,13 @@ class Watcher extends EventEmitter {
             for (let update of updates) {
                 debug(`Path updated: ${update.path}`);
                 this.notify(update.path);
+                this._cacher.unset(update.path)
+                    .catch(error => {
+                        this._logger.error(new WError(error, 'Watcher._watchUpdates(): unset'));
+                    });
             }
         } catch (error) {
-            this._logger.error(new WError(error, 'Watcher._watchUpdates'));
+            this._logger.error(new WError(error, 'Watcher._watchUpdates()'));
         }
     }
 
