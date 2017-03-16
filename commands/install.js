@@ -118,9 +118,10 @@ class Install {
                 } catch (error) {
                     try {
                         let config = fs.readFileSync(path.join(__dirname, '..', 'bhdir.conf'), { encoding: 'utf8'});
-                        config.socket.group = (os.platform() == 'freebsd' ? 'wheel' : 'root');
+                        config = config.replace(/GROUP/g, os.platform() == 'freebsd' ? 'wheel' : 'root');
                         fs.writeFileSync(path.join(configDir, 'bhdir.conf'), config, { mode: 0o640 });
                     } catch (error) {
+                        console.log(error);
                         this.error(`Could not create bhdir.conf`);
                     }
                 }
