@@ -71,6 +71,13 @@ class Watcher extends EventEmitter {
     }
 
     /**
+     * Clean updates directory interval
+     */
+    static get retryUpdateInterval() {
+        return 1000; // ms
+    }
+
+    /**
      * Initialize the server
      * @param {string} name                     Config section name
      * @return {Promise}
@@ -131,32 +138,19 @@ class Watcher extends EventEmitter {
 
                 this._watchUpdates();
 
-                let updates, updatesPath = path.join(this._rootDir, 'updates');
+                let files, updatesPath = path.join(this._rootDir, 'updates');
                 try {
-                    fs.accessSync(updatesPath, fs.constants.F_OK);
-                    updates = true;
+                    files = fs.readdirSync(updatesPath);
                 } catch (error) {
-                    updates = false;
+                    // do nothing
                 }
-                if (updates) {
-                    let files = fs.readdirSync(updatesPath);
+
+                if (files) {
                     return files.reduce(
                         (prev, file) => {
                             return prev.then(() => {
-                                return this._filer.lockRead(path.join(updatesPath, file))
-                                    .then(update => {
-                                        try {
-                                            let json = JSON.parse(update);
-                                            if (!json.path)
-                                                throw new Error('No path');
-
-                                            json.timestamp = Date.now();
-                                            this.updates.set(file, json);
-                                        } catch (error) {
-                                            this._logger.debug('watcher', `Update parse error: ${error.message}`);
-                                            fs.unlinkSync(path.join(updatesPath, file));
-                                        }
-                                    });
+                                let json = { timestamp: Date.now() };
+                                this.updates.set(file, json);
                             });
                         },
                         Promise.resolve()
@@ -193,52 +187,43 @@ class Watcher extends EventEmitter {
      */
     onChangeUpdates(eventType, filename) {
         this._logger.debug('watcher', `Updates event: ${eventType}, ${filename}`);
-        let updatesPath = path.join(this._rootDir, 'updates');
+
+        let files, updatesPath = path.join(this._rootDir, 'updates');
         try {
-            let updates = [];
-            let files = fs.readdirSync(updatesPath);
-            for (let file of files) {
-                if (this.updates.has(file))
-                    continue;
-
-                this._filer.lockRead(path.join(updatesPath, file))
-                    .then(update => {
-                        try {
-                            let json = JSON.parse(update);
-                            if (!json.path)
-                                throw new Error('No path');
-
-                            json.timestamp = Date.now();
-                            this.updates.set(file, json);
-
-                            let parts = file.split('.');
-                            if (parts.length >= 3 && parts[1] != this.sessionId)
-                                updates.push(json);
-                        } catch (error) {
-                            this._logger.debug('watcher', `Update parse error: ${error.message}`);
-                            fs.unlinkSync(path.join(updatesPath, file));
-                        }
-                    })
-                    .catch(error => {
-                        this._logger.error(`Update read error: ${error.message}`);
-                    });
-            }
-
-            for (let update of updates) {
-                this._logger.debug('watcher', `Path updated: ${update.path}`);
-                this._cacher.unset(update.path)
-                    .then(
-                        () => {
-                            this._directory.notify(update.path);
-                        },
-                        error => {
-                            this._directory.notify(update.path);
-                            this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): unset'));
-                        }
-                    );
-            }
+            files = fs.readdirSync(updatesPath);
         } catch (error) {
-            this._logger.error(new WError(error, 'Watcher.onChangeUpdates()'));
+            return;
+        }
+
+        for (let file of files) {
+            if (this.updates.has(file))
+                continue;
+
+            this._readUpdate(path.join(updatesPath, file))
+                .then(json => {
+                    if (!json)
+                        return;
+
+                    let parts = file.split('.');
+                    if (parts.length >= 3 && parts[1] != this.sessionId) {
+                        for (let path of json.paths) {
+                            this._logger.debug('watcher', `Path updated: ${path}`);
+                            this._cacher.unset(path)
+                                .then(
+                                    () => {
+                                        this._directory.notify(path);
+                                    },
+                                    error => {
+                                        this._directory.notify(path);
+                                        this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): unset'));
+                                    }
+                                );
+                        }
+                    }
+                })
+                .catch(error => {
+                    this._logger.error(`Update read error: ${error.message}`);
+                });
         }
     }
 
@@ -259,7 +244,11 @@ class Watcher extends EventEmitter {
         for (let [ name, info ] of this.updates) {
             if (info.timestamp < expiration) {
                 this._logger.debug('watcher', `Update expired: ${name}`);
-                fs.unlinkSync(path.join(updatesPath, name));
+                try {
+                    fs.unlinkSync(path.join(updatesPath, name));
+                } catch (error) {
+                    // do nothing
+                }
                 this.updates.delete(name);
             }
         }
@@ -298,6 +287,60 @@ class Watcher extends EventEmitter {
         } catch (error) {
             this._logger.error(new WError(error, 'Watcher._watchUpdates'));
         }
+    }
+
+    /**
+     * Read update file until it parses
+     * @param {string} filename                 Filename
+     * @return {Promise}
+     */
+    _readUpdate(filename) {
+        return new Promise((resolve, reject) => {
+            if (this.updates.has(path.basename(filename)))
+                return resolve(null);
+
+            let init = { timestamp: Date.now() };
+            this.updates.set(path.basename(filename), init);
+
+            let read = () => {
+                if (!this.updates.has(path.basename(filename)))
+                    return resolve(null);
+
+                this._filer.lockRead(filename)
+                    .then(update => {
+                        if (!this.updates.has(path.basename(filename)))
+                            return resolve(null);
+
+                        let json;
+                        try {
+                            json = JSON.parse(update);
+                        } catch (error) {
+                            return setTimeout(() => { read(); }, this.constructor.retryUpdateInterval);
+                        }
+
+                        if (!json.paths) {
+                            this._logger.error(`Update parse error: no paths`);
+                            try {
+                                fs.unlinkSync(filename);
+                            } catch (error) {
+                                // do nothing
+                            }
+                            return resolve(null);
+                        }
+
+                        json.timestamp = init.timestamp;
+                        this.updates.set(path.basename(filename), json);
+                        resolve(json);
+                    })
+                    .catch(error => {
+                        if (error.code == 'ENOENT')
+                            return resolve(null);
+
+                        reject(new WError(error, 'Watcher._readUpdate()'));
+                    });
+            };
+            read();
+        });
     }
 
     /**

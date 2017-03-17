@@ -204,7 +204,7 @@ class Directory extends EventEmitter {
     touch(filename) {
         let directory = path.join(this._rootDir, 'updates');
         let json = {
-            path: filename,
+            paths: [ filename ],
         };
 
         return this._filer.createDirectory(
