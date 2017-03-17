@@ -71,8 +71,8 @@ class Touch {
 
         this._cacher.unset(name)
             .then(() => {
-                this.watcher.notify(name);
-                return this.watcher.touch(name)
+                this.directory.notify(name);
+                return this.directory.touch(name)
             })
             .then(() => {
                reply(true);

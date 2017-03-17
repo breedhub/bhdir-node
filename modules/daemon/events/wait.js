@@ -81,12 +81,12 @@ class Wait {
             return reply(false, 'Invalid timeout');
         }
 
-        this.watcher.wait(name, timeout)
+        this.directory.wait(name, timeout)
             .then(timeout => {
                 if (timeout)
                     return reply(true, null, true);
 
-                return this.directory.getVar(name)
+                return this.directory.get(name)
                     .then(result => {
                         reply(true, result, false);
                     });

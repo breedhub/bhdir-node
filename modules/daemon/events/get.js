@@ -72,7 +72,7 @@ class Get {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.getVar(name)
+        this.directory.get(name)
             .then(result => {
                 reply(true, result);
             })

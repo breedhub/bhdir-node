@@ -67,7 +67,7 @@ class Unset {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.unsetVar(name)
+        this.directory.unset(name)
             .then(() => {
                 reply(true);
             })

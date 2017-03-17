@@ -24,8 +24,9 @@ class Watcher extends EventEmitter {
     constructor(app, config, logger, cacher, util) {
         super();
 
+        this.sessionId = util.getRandomString(8, { lower: true, upper: true, digits: true, special: false });
+
         this.updates = new Map();
-        this.waiting = new Map();
         this.rootWatcher = null;
         this.updatesWatcher = null;
 
@@ -86,8 +87,10 @@ class Watcher extends EventEmitter {
 
                 let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
                 this._rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
-                if (!this._rootDir)
-                    throw new Error('No root parameter in directory section of bhdir.conf');
+                if (!this._rootDir) {
+                    this._logger.error('No root parameter in directory section of bhdir.conf');
+                    process.exit(1);
+                }
             });
     }
 
@@ -116,14 +119,6 @@ class Watcher extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('watcher', 'Starting the server');
-                this._sessionId = this._util.getRandomString(8, {lower: true, upper: true, digits: true, special: false});
-
-                try {
-                    fs.accessSync(this._rootDir, fs.constants.F_OK);
-                } catch (error) {
-                    this._logger.error(`No access to ${this._rootDir}`);
-                    process.exit(1);
-                }
 
                 this._logger.debug('watcher', `Watching ${this._rootDir}`);
                 this.rootWatcher = fs.watch(this._rootDir, this.onChangeRoot.bind(this));
@@ -134,88 +129,32 @@ class Watcher extends EventEmitter {
 
                 this._watchUpdates();
 
-                let updatesPath = path.join(this._rootDir, 'updates');
-                let files = fs.readdirSync(updatesPath);
-                for (let file of files) {
-                    let update = fs.readFileSync(path.join(updatesPath, file), 'utf8');
-                    try {
-                        let json = JSON.parse(update);
-                        if (!json.path)
-                            throw new Error('No path');
+                let updates, updatesPath = path.join(this._rootDir, 'updates');
+                try {
+                    fs.accessSync(updatesPath, fs.constants.F_OK);
+                    updates = true;
+                } catch (error) {
+                    updates = false;
+                }
+                if (updates) {
+                    let files = fs.readdirSync(updatesPath);
+                    for (let file of files) {
+                        let update = fs.readFileSync(path.join(updatesPath, file), 'utf8');
+                        try {
+                            let json = JSON.parse(update);
+                            if (!json.path)
+                                throw new Error('No path');
 
-                        json.timestamp = Date.now();
-                        this.updates.set(file, json);
-                    } catch (error) {
-                        fs.unlinkSync(path.join(updatesPath, file));
+                            json.timestamp = Date.now();
+                            this.updates.set(file, json);
+                        } catch (error) {
+                            fs.unlinkSync(path.join(updatesPath, file));
+                        }
                     }
                 }
 
                 this._cleanUpdatesTimer = setInterval(this.onCleanUpdates.bind(this), this.constructor.cleanUpdatesInterval);
             });
-    }
-
-    /**
-     * Wait for variable change
-     * @param {string} filename                     Variable path
-     * @param {number} timeout                      Timeout in ms, 0 for no timeout
-     * @return {Promise}
-     */
-    wait(filename, timeout) {
-        let info = this.waiting.get(filename);
-        if (!info) {
-            info = {
-                handlers: new Set(),
-            };
-            this.waiting.set(filename, info);
-        }
-
-        return new Promise((resolve) => {
-            let cb = result => {
-                this._logger.debug('watcher', `Wait on ${filename} timeout: ${result}`);
-                resolve(result);
-            };
-            info.handlers.add(cb);
-            if (timeout)
-                setTimeout(() => { cb(true); }, timeout);
-        });
-    }
-
-    /**
-     * Wait for variable change
-     * @param {string} filename                     Variable path
-     * @return {Promise}
-     */
-    touch(filename) {
-        return new Promise((resolve, reject) => {
-            try {
-                let json = {
-                    path: filename,
-                };
-                let update = path.join(
-                    this._rootDir,
-                    'updates',
-                    Date.now() + '.' + this._sessionId + '.json'
-                );
-                fs.writeFileSync(update, JSON.stringify(json) + '\n');
-                resolve();
-            } catch (error) {
-                reject(error);
-            }
-        });
-    }
-
-    /**
-     * Notify about variable change
-     * @param {string} filename                     Variable path
-     */
-    notify(filename) {
-        let waiting = this.waiting.get(filename);
-        if (!waiting)
-            return;
-
-        for (let cb of waiting.handlers)
-            cb(false);
-        this.waiting.delete(filename);
     }
 
     /**
@@ -261,7 +200,7 @@ class Watcher extends EventEmitter {
                     this.updates.set(file, json);
 
                     let parts = file.split('.');
-                    if (parts.length >= 3 && parts[1] != this._sessionId)
+                    if (parts.length >= 3 && parts[1] != this.sessionId)
                        updates.push(json);
                 } catch (error) {
                     fs.unlinkSync(path.join(updatesPath, file));
@@ -273,16 +212,16 @@ class Watcher extends EventEmitter {
                 this._cacher.unset(update.path)
                     .then(
                         () => {
-                            this.notify(update.path);
+                            this._directory.notify(update.path);
                         },
                         error => {
-                            this.notify(update.path);
-                            this._logger.error(new WError(error, 'Watcher._watchUpdates(): unset'));
+                            this._directory.notify(update.path);
+                            this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): unset'));
                         }
                     );
             }
         } catch (error) {
-            this._logger.error(new WError(error, 'Watcher._watchUpdates()'));
+            this._logger.error(new WError(error, 'Watcher.onChangeUpdates()'));
         }
     }
 
@@ -324,14 +263,13 @@ class Watcher extends EventEmitter {
             if (!updates) {
                 this.updatesWatcher.close();
                 this.updatesWatcher = null;
-            } else {
-                return;
             }
+            return;
         }
 
         try {
             if (!updates)
-                fs.mkdirSync(updatesPath, 0o755);
+                return;
 
             this._logger.debug('watcher', `Watching ${updatesPath}`);
             this.updatesWatcher = fs.watch(updatesPath, this.onChangeUpdates.bind(this));
@@ -343,6 +281,17 @@ class Watcher extends EventEmitter {
         } catch (error) {
             this._logger.error(new WError(error, 'Watcher._watchUpdates'));
         }
+    }
+
+    /**
+     * Retrieve directory server
+     * @return {Directory}
+     */
+    get _directory() {
+        if (this._directory_instance)
+            return this._directory_instance;
+        this._directory_instance = this._app.get('servers').get('directory');
+        return this._directory_instance;
     }
 }
 

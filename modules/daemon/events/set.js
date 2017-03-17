@@ -68,7 +68,7 @@ class Set {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.setVar(name, value)
+        this.directory.set(name, value)
             .then(() => {
                 reply(true);
             })

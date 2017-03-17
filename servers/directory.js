@@ -25,6 +25,8 @@ class Directory extends EventEmitter {
     constructor(app, config, logger, filer, runner, cacher) {
         super();
 
+        this.waiting = new Map();
+
         this._name = null;
         this._app = app;
         this._config = config;
@@ -108,6 +110,12 @@ class Directory extends EventEmitter {
                 }
 
                 let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                this._rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
+                if (!this._rootDir) {
+                    this._logger.error('No root parameter in directory section of bhdir.conf');
+                    process.exit(1);
+                }
+
                 this._dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '750', 8);
                 this._fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '640', 8);
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
@@ -136,6 +144,12 @@ class Directory extends EventEmitter {
                             this._group = parseInt(groupDb[2]);
                         }
                     });
+            })
+            .then(() => {
+                return this._filer.createDirectory(
+                    this._rootDir,
+                    { mode: this._dirMode, uid: this._user, gid: this._group }
+                )
             });
     }
 
@@ -157,12 +171,76 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Wait for variable change
+     * @param {string} filename                     Variable path
+     * @param {number} timeout                      Timeout in ms, 0 for no timeout
+     * @return {Promise}
+     */
+    wait(filename, timeout) {
+        let info = this.waiting.get(filename);
+        if (!info) {
+            info = {
+                handlers: new Set(),
+            };
+            this.waiting.set(filename, info);
+        }
+
+        return new Promise((resolve) => {
+            let cb = result => {
+                this._logger.debug('directory', `Wait on ${filename} timeout: ${result}`);
+                resolve(result);
+            };
+            info.handlers.add(cb);
+            if (timeout)
+                setTimeout(() => { cb(true); }, timeout);
+        });
+    }
+
+    /**
+     * Wait for variable change
+     * @param {string} filename                     Variable path
+     * @return {Promise}
+     */
+    touch(filename) {
+        let directory = path.join(this._rootDir, 'updates');
+        let json = {
+            path: filename,
+        };
+
+        return this._filer.createDirectory(
+                directory,
+                { mode: this._dirMode, uid: this._user, gid: this._group }
+            )
+            .then(() => {
+                return this._filer.lockWrite(
+                    path.join(directory, Date.now() + '.' + this._watcher.sessionId + '.json'),
+                    JSON.stringify(json) + '\n',
+                    { mode: this._fileMode, uid: this._user, gid: this._group }
+                );
+            });
+    }
+
+    /**
+     * Notify about variable change
+     * @param {string} filename                     Variable path
+     */
+    notify(filename) {
+        let waiting = this.waiting.get(filename);
+        if (!waiting)
+            return;
+
+        for (let cb of waiting.handlers)
+            cb(false);
+        this.waiting.delete(filename);
+    }
+
+    /**
      * Set variable
      * @param {string} filename                     Variable path
      * @param {*} value                             Variable value
      * @return {Promise}
      */
-    setVar(filename, value) {
+    set(filename, value) {
         this._logger.debug('directory', `Setting ${filename} to ${value}`);
 
         if (value === null) {
@@ -175,7 +253,7 @@ class Directory extends EventEmitter {
         let directory = path.join(this._dataDir, parts.join('/'));
         let notified = false;
 
-        return this.getVar(filename)
+        return this.get(filename)
             .then(result => {
                 if (result === value)
                     return;
@@ -183,7 +261,7 @@ class Directory extends EventEmitter {
                 return this._cacher.set(filename, value)
                     .then(reply => {
                         if (typeof reply != 'undefined') {
-                            this._watcher.notify(filename);
+                            this.notify(filename);
                             notified = true;
                         }
 
@@ -218,9 +296,9 @@ class Directory extends EventEmitter {
                     })
                     .then(() => {
                         if (!notified)
-                            this._watcher.notify(filename);
+                            this.notify(filename);
 
-                        return this._watcher.touch(filename);
+                        return this.touch(filename);
                     });
             });
     }
@@ -230,7 +308,7 @@ class Directory extends EventEmitter {
      * @param {string} filename                     Variable path
      * @return {Promise}
      */
-    getVar(filename) {
+    get(filename) {
         this._logger.debug('directory', `Getting ${filename}`);
 
         let parts = filename.split('/');
@@ -274,7 +352,7 @@ class Directory extends EventEmitter {
      * @param {string} filename                     Variable path
      * @return {Promise}
      */
-    unsetVar(filename) {
+    unset(filename) {
         this._logger.debug('directory', `Unsetting ${filename}`);
 
         let parts = filename.split('/');
@@ -282,7 +360,7 @@ class Directory extends EventEmitter {
         let directory = path.join(this._dataDir, parts.join('/'));
         let notified = false;
 
-        return this.getVar(filename)
+        return this.get(filename)
             .then(result => {
                 if (result === null)
                     return;
@@ -290,19 +368,19 @@ class Directory extends EventEmitter {
                 return this._cacher.unset(filename)
                     .then(reply => {
                         if (typeof reply != 'undefined') {
-                            this._watcher.notify(filename);
+                            this.notify(filename);
                             notified = true;
                         }
 
                         return this._filer.createDirectory(
                             directory,
-                            {mode: this._dirMode, uid: this._user, gid: this._group}
+                            { mode: this._dirMode, uid: this._user, gid: this._group }
                         );
                     })
                     .then(() => {
                         return this._filer.createFile(
                             path.join(directory, '.vars.json'),
-                            {mode: this._fileMode, uid: this._user, gid: this._group}
+                            { mode: this._fileMode, uid: this._user, gid: this._group }
                         );
                     })
                     .then(() => {
@@ -325,9 +403,9 @@ class Directory extends EventEmitter {
                     })
                     .then(() => {
                         if (!notified)
-                            this._watcher.notify(filename);
+                            this.notify(filename);
 
-                        return this._watcher.touch(filename);
+                        return this.touch(filename);
                     });
             });
     }

@@ -98,18 +98,9 @@ class Install {
                     fs.accessSync('/var/lib/bhdir', fs.constants.F_OK);
                 } catch (error) {
                     try {
-                        fs.mkdirSync('/var/lib/bhdir', 0o700);
+                        fs.mkdirSync('/var/lib/bhdir', 0o755);
                     } catch (error) {
                         this.error(`Could not create /var/lib/bhdir`);
-                    }
-                }
-                try {
-                    fs.accessSync('/var/lib/bhdir/sync', fs.constants.F_OK);
-                } catch (error) {
-                    try {
-                        fs.mkdirSync('/var/lib/bhdir/sync', 0o755);
-                    } catch (error) {
-                        this.error(`Could not create /var/lib/bhdir/sync`);
                     }
                 }
 
