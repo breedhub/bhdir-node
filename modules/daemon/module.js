@@ -61,6 +61,9 @@ class Daemon {
         let get = this._app.get('modules.daemon.events.get');
         server.on('get', get.handle.bind(get));
 
+        let unset = this._app.get('modules.daemon.events.unset');
+        server.on('unset', unset.handle.bind(unset));
+
         let wait = this._app.get('modules.daemon.events.wait');
         server.on('wait', wait.handle.bind(wait));
 

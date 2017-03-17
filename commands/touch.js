@@ -48,7 +48,7 @@ class Touch {
      */
     run(argv) {
         if (argv['_'].length < 2)
-            return this._help.helpGet(argv);
+            return this._help.helpTouch(argv);
 
         let touchPath = argv['_'][1];
         let sockName = argv['z'];

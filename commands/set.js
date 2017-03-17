@@ -48,7 +48,7 @@ class Set {
      */
     run(argv) {
         if (argv['_'].length < 3)
-            return this._help.helpGet(argv);
+            return this._help.helpSet(argv);
 
         let setPath = argv['_'][1];
         let setValue = argv['_'][2];

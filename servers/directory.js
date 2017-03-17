@@ -165,53 +165,64 @@ class Directory extends EventEmitter {
     setVar(filename, value) {
         this._logger.debug('directory', `Setting ${filename} to ${value}`);
 
+        if (value === null) {
+            this._logger.error(`Could not set ${filename} to null`);
+            return Promise.resolve();
+        }
+
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this._dataDir, parts.join('/'));
         let notified = false;
 
-        return this._cacher.set(filename, value)
-            .then(reply => {
-                if (typeof reply != 'undefined') {
-                    this._watcher.notify(filename);
-                    notified = true;
-                }
+        return this.getVar(filename)
+            .then(result => {
+                if (result === value)
+                    return;
 
-                return this._filer.createDirectory(
-                    directory,
-                    { mode: this._dirMode, uid: this._user, gid: this._group }
-                );
-            })
-            .then(() => {
-                return this._filer.createFile(
-                    path.join(directory, '.vars.json'),
-                    { mode: this._fileMode, uid: this._user, gid: this._group }
-                );
-            })
-            .then(() => {
-                return this._filer.lockUpdate(
-                        path.join(directory, '.vars.json'),
-                        content => {
-                            return new Promise((resolve, reject) => {
-                                try {
-                                    let json = {};
-                                    if (content.trim().length)
-                                        json = JSON.parse(content.trim());
-                                    json[name] = value;
-                                    resolve(JSON.stringify(json) + '\n');
-                                } catch (error) {
-                                    reject(error);
-                                }
-                            });
+                return this._cacher.set(filename, value)
+                    .then(reply => {
+                        if (typeof reply != 'undefined') {
+                            this._watcher.notify(filename);
+                            notified = true;
                         }
-                    );
-            })
-            .then(() => {
-                if (!notified)
-                    this._watcher.notify(filename);
 
-                return this._watcher.touch(filename);
-            })
+                        return this._filer.createDirectory(
+                            directory,
+                            {mode: this._dirMode, uid: this._user, gid: this._group}
+                        );
+                    })
+                    .then(() => {
+                        return this._filer.createFile(
+                            path.join(directory, '.vars.json'),
+                            {mode: this._fileMode, uid: this._user, gid: this._group}
+                        );
+                    })
+                    .then(() => {
+                        return this._filer.lockUpdate(
+                            path.join(directory, '.vars.json'),
+                            content => {
+                                return new Promise((resolve, reject) => {
+                                    try {
+                                        let json = {};
+                                        if (content.trim().length)
+                                            json = JSON.parse(content.trim());
+                                        json[name] = value;
+                                        resolve(JSON.stringify(json) + '\n');
+                                    } catch (error) {
+                                        reject(error);
+                                    }
+                                });
+                            }
+                        );
+                    })
+                    .then(() => {
+                        if (!notified)
+                            this._watcher.notify(filename);
+
+                        return this._watcher.touch(filename);
+                    });
+            });
     }
 
     /**
@@ -254,6 +265,69 @@ class Directory extends EventEmitter {
                             .then(() => {
                                 return result;
                             });
+                    });
+            });
+    }
+
+    /**
+     * Delete variable
+     * @param {string} filename                     Variable path
+     * @return {Promise}
+     */
+    unsetVar(filename) {
+        this._logger.debug('directory', `Unsetting ${filename}`);
+
+        let parts = filename.split('/');
+        let name = parts.pop();
+        let directory = path.join(this._dataDir, parts.join('/'));
+        let notified = false;
+
+        return this.getVar(filename)
+            .then(result => {
+                if (result === null)
+                    return;
+
+                return this._cacher.unset(filename)
+                    .then(reply => {
+                        if (typeof reply != 'undefined') {
+                            this._watcher.notify(filename);
+                            notified = true;
+                        }
+
+                        return this._filer.createDirectory(
+                            directory,
+                            {mode: this._dirMode, uid: this._user, gid: this._group}
+                        );
+                    })
+                    .then(() => {
+                        return this._filer.createFile(
+                            path.join(directory, '.vars.json'),
+                            {mode: this._fileMode, uid: this._user, gid: this._group}
+                        );
+                    })
+                    .then(() => {
+                        return this._filer.lockUpdate(
+                            path.join(directory, '.vars.json'),
+                            content => {
+                                return new Promise((resolve, reject) => {
+                                    try {
+                                        let json = {};
+                                        if (content.trim().length)
+                                            json = JSON.parse(content.trim());
+                                        delete json[name];
+                                        resolve(JSON.stringify(json) + '\n');
+                                    } catch (error) {
+                                        reject(error);
+                                    }
+                                });
+                            }
+                        );
+                    })
+                    .then(() => {
+                        if (!notified)
+                            this._watcher.notify(filename);
+
+                        return this._watcher.touch(filename);
                     });
             });
     }

@@ -62,6 +62,7 @@ class Help {
         console.log('\tinstall\t\tRegister the program in the system');
         console.log('\tset\t\tSet variable value');
         console.log('\tget\t\tGet variable value');
+        console.log('\tunset\t\tUnset variable');
         console.log('\twait\t\tWait for variable update');
         console.log('\ttouch\t\tTrigger variable update');
         console.log('\tstart\t\tStart the daemon');
@@ -99,7 +100,6 @@ class Help {
         process.exit(0);
     }
 
-
     /**
      * Get command
      */
@@ -109,9 +109,17 @@ class Help {
         process.exit(0);
     }
 
+    /**
+     * Unset command
+     */
+    helpUnset(argv) {
+        console.log('Usage:\tbhdirctl unset <path> [-z <socket>]\n');
+        console.log('\tDelete a variable.');
+        process.exit(0);
+    }
 
     /**
-     * Get command
+     * Wait command
      */
     helpWait(argv) {
         console.log('Usage:\tbhdirctl wait <path>\n');
@@ -121,7 +129,7 @@ class Help {
 
 
     /**
-     * Get command
+     * Touch command
      */
     helpTouch(argv) {
         console.log('Usage:\tbhdirctl touch <path>\n');

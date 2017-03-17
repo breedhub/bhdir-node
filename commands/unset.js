@@ -1,6 +1,6 @@
 /**
- * Wait command
- * @module commands/wait
+ * Unset command
+ * @module commands/unset
  */
 const path = require('path');
 const net = require('net');
@@ -10,7 +10,7 @@ const SocketWrapper = require('socket-wrapper');
 /**
  * Command class
  */
-class Wait {
+class Unset {
     /**
      * Create the service
      * @param {App} app                 The application
@@ -26,11 +26,11 @@ class Wait {
     }
 
     /**
-     * Service name is 'commands.wait'
+     * Service name is 'commands.unset'
      * @type {string}
      */
     static get provides() {
-        return 'commands.wait';
+        return 'commands.unset';
     }
 
     /**
@@ -48,18 +48,16 @@ class Wait {
      */
     run(argv) {
         if (argv['_'].length < 2)
-            return this._help.helpWait(argv);
+            return this._help.helpUnset(argv);
 
-        let waitPath = argv['_'][1];
-        let waitTimeout = argv['t'] || 0;
+        let unsetPath = argv['_'][1];
         let sockName = argv['z'];
 
         let request = {
             id: uuid.v1(),
-            command: 'wait',
+            command: 'unset',
             args: [
-                waitPath,
-                waitTimeout
+                unsetPath,
             ]
         };
 
@@ -71,12 +69,7 @@ class Wait {
 
                 if (!response.success)
                     this.error(`Error: ${response.message}`);
-                if (response.timeout)
-                    this.error(`Timeout`);
-                else if (response.results.length != 1)
-                    throw new Error('Invalid reply from daemon');
 
-                console.log(response.results[0]);
                 process.exit(0);
             })
             .catch(error => {
@@ -129,4 +122,4 @@ class Wait {
     }
 }
 
-module.exports = Wait;
+module.exports = Unset;
