@@ -15,13 +15,14 @@ const WError = require('verror').WError;
 class Directory extends EventEmitter {
     /**
      * Create the service
-     * @param {App} app                             Application
-     * @param {object} config                       Configuration
-     * @param {Logger} logger                       Logger service
-     * @param {Filer} filer                         Filer service
-     * @param {Cacher} cacher                       Cacher service
+     * @param {App} app                     Application
+     * @param {object} config               Configuration
+     * @param {Logger} logger               Logger service
+     * @param {Filer} filer                 Filer service
+     * @param {Runner} runner               Runner service
+     * @param {Cacher} cacher               Cacher service
      */
-    constructor(app, config, logger, filer, cacher) {
+    constructor(app, config, logger, filer, runner, cacher) {
         super();
 
         this._name = null;
@@ -29,6 +30,7 @@ class Directory extends EventEmitter {
         this._config = config;
         this._logger = logger;
         this._filer = filer;
+        this._runner = runner;
         this._cacher = cacher;
     }
 
@@ -45,7 +47,7 @@ class Directory extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer', 'cacher' ];
+        return [ 'app', 'config', 'logger', 'filer', 'runner', 'cacher' ];
     }
 
     /**
@@ -98,6 +100,42 @@ class Directory extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('directory', 'Starting the server');
+                let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                this._dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '750', 8);
+                this._fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '640', 8);
+                let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
+                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() == 'freebsd' ? 'wheel' : 'root');
+
+                return Promise.all([
+                        this._runner.exec('getent', [ 'passwd', user ]),
+                        this._runner.exec('getent', [ 'group', group ]),
+                    ])
+                    .then(([ userInfo, groupInfo ]) => {
+                        if (user.length && parseInt(user).toString() == user) {
+                            this._user = parseInt(user);
+                        } else {
+                            let userDb = userInfo.stdout.trim().split(':');
+                            if (userInfo.code !== 0 || userDb.length != 7)
+                                return this._logger.error('Directory user not found');
+                            this._user = parseInt(userDb[2]);
+                        }
+
+                        if (group.length && parseInt(group).toString() == group) {
+                            this._group = parseInt(group);
+                        } else {
+                            let groupDb = groupInfo.stdout.trim().split(':');
+                            if (groupInfo.code !== 0 || groupDb.length != 4)
+                                return this._logger.error('Directory group not found');
+                            this._group = parseInt(groupDb[2]);
+                        }
+                    });
             });
     }
 
@@ -139,10 +177,16 @@ class Directory extends EventEmitter {
                     notified = true;
                 }
 
-                return this._filer.createDirectory(directory);
+                return this._filer.createDirectory(
+                    directory,
+                    { mode: this._dirMode, uid: this._user, gid: this._group }
+                );
             })
             .then(() => {
-                return this._filer.createFile(path.join(directory, '.vars.json'));
+                return this._filer.createFile(
+                    path.join(directory, '.vars.json'),
+                    { mode: this._fileMode, uid: this._user, gid: this._group }
+                );
             })
             .then(() => {
                 return this._filer.lockUpdate(

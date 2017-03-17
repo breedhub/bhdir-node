@@ -131,16 +131,24 @@ class Daemon extends EventEmitter {
                         this._runner.exec('getent', [ 'passwd', user ]),
                         this._runner.exec('getent', [ 'group', group ]),
                     ])
-                    .then(([ user, group ]) => {
-                        let userDb = user.stdout.trim().split(':');
-                        if (user.code !== 0 || userDb.length != 7)
-                            return this._logger.error('Socket user not found');
-                        let groupDb = group.stdout.trim().split(':');
-                        if (group.code !== 0 || groupDb.length != 4)
-                            return this._logger.error('Socket group not found');
+                    .then(([ userInfo, groupInfo ]) => {
+                        if (user.length && parseInt(user).toString() == user) {
+                            this._socketUser = parseInt(user);
+                        } else {
+                            let userDb = userInfo.stdout.trim().split(':');
+                            if (userInfo.code !== 0 || userDb.length != 7)
+                                return this._logger.error('Socket user not found');
+                            this._socketUser = parseInt(userDb[2]);
+                        }
 
-                        this._socketUser = parseInt(userDb[2]);
-                        this._socketGroup = parseInt(groupDb[2]);
+                        if (group.length && parseInt(group).toString() == group) {
+                            this._socketGroup = parseInt(group);
+                        } else {
+                            let groupDb = groupInfo.stdout.trim().split(':');
+                            if (groupInfo.code !== 0 || groupDb.length != 4)
+                                return this._logger.error('Socket group not found');
+                            this._socketGroup = parseInt(groupDb[2]);
+                        }
                     });
             })
             .then(() => {
