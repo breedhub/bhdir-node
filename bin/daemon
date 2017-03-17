@@ -7,13 +7,21 @@ const stripAnsi = require('strip-ansi');
 const Runner = require(path.join(__dirname, '..', 'node_modules', 'arpen', 'src', 'services', 'runner.js'));
 const Emailer = require(path.join(__dirname, '..', 'node_modules', 'arpen', 'src', 'services', 'emailer.js'));
 
-let config, runner, emailer;
+let config, runner, emailer, log;
 try {
     let globalConf = require(path.join(__dirname, '..', 'config', 'global.js'));
     let localConf = require(path.join(__dirname, '..', 'config', 'local.js'));
     config = merge.recursive(true, globalConf, localConf);
     runner = new Runner();
     emailer = new Emailer(config);
+
+    for (let logName of Object.keys(config.logs || {})) {
+        let logInfo = config.logs[logName];
+        if (!logInfo.default || !logInfo.path || !logInfo.name)
+            continue;
+        log = path.join(logInfo.path, logInfo.name);
+        break;
+    }
 } catch (error) {
     console.error(error.message);
     process.exit(1);
@@ -86,12 +94,25 @@ function restart() {
             if (result.code === 0)
                 exit(0);
 
-            if (!config.email.daemon.enabled)
+            if (log) {
+                try {
+                    fs.appendFileSync(
+                        log,
+                        '============================== CRUSH REPORT ==============================\n' +
+                        stripAnsi(buffer) +
+                        '==========================================================================\n'
+                    );
+                } catch (error) {
+                    // do nothing
+                }
+            }
+
+            if (!config.email.crush.enable)
                 return setTimeout(() => { restart(); }, restartPause);
 
             return emailer.send({
                     from: config.email.from,
-                    to: config.email.daemon.to,
+                    to: config.email.crush.to,
                     subject: `Exit code ${result.code} of ${daemonName}`,
                     text: stripAnsi(buffer),
                 })
@@ -100,12 +121,25 @@ function restart() {
                 });
         })
         .catch(error => {
-            if (!config.email.daemon.enabled)
+            if (log) {
+                try {
+                    fs.appendFileSync(
+                        log,
+                        '============================= LAUNCH  REPORT =============================\n' +
+                        error.stack + '\n' +
+                        '==========================================================================\n'
+                    );
+                } catch (error) {
+                    // do nothing
+                }
+            }
+
+            if (!config.email.crush.enable)
                 exit(1);
 
             return emailer.send({
                     from: config.email.from,
-                    to: config.email.daemon.to,
+                    to: config.email.crush.to,
                     subject: `Failed to start ${daemonName}`,
                     text: error.message,
                 })

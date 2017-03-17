@@ -60,14 +60,13 @@ module.exports = {
 
     email: {
         from: 'root@localhost',
-        logger: {
-            info_enabled: false,            // email logger.info() or not
-            warn_enabled: false,            // email logger.warn() or not
-            error_enabled: false,           // email logger.error() or not
+        log: {
+            enable: false,                 // email logger messages or not
+            level: 'error',
             to: 'debug@example.com',
         },
-        daemon: {
-            enabled: false,                 // email program crash or not
+        crush: {
+            enable: false,                 // email program crash or not
             to: 'debug@example.com',
         },
     },
@@ -83,6 +82,7 @@ module.exports = {
         main: {
             level: (userConfig.daemon && userConfig.daemon.log_level) || 'info',
             default: true,
+            echo: false,
             name: 'bhdir.log',
             path: '/var/log/bhdir',
             interval: '1d',
