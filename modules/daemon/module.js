@@ -70,6 +70,9 @@ class Daemon {
         let touch = this._app.get('modules.daemon.events.touch');
         server.on('touch', touch.handle.bind(touch));
 
+        let clearCache = this._app.get('modules.daemon.events.clearCache');
+        server.on('clear_cache', clearCache.handle.bind(clearCache));
+
         return Promise.resolve();
     }
 }

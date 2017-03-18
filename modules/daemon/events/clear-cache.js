@@ -1,34 +1,34 @@
 /**
- * Touch event
- * @module daemon/events/touch
+ * Clear Cachge event
+ * @module daemon/events/clear-cache
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Touch event class
+ * Clear Cache event class
  */
-class Touch {
+class ClearCache {
     /**
      * Create service
      * @param {App} app                             The application
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
-     * @param {Cacher} cacher                       Cacher service
+     * @param {Redis} redis                         Redis service
      */
-    constructor(app, config, logger, cacher) {
+    constructor(app, config, logger, redis) {
         this._app = app;
         this._config = config;
         this._logger = logger;
-        this._cacher = cacher;
+        this._redis = redis;
     }
 
     /**
-     * Service name is 'modules.daemon.events.touch'
+     * Service name is 'modules.daemon.events.clearCache'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.touch';
+        return 'modules.daemon.events.clearCache';
     }
 
     /**
@@ -36,7 +36,7 @@ class Touch {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'cacher' ];
+        return [ 'app', 'config', 'logger', 'redis' ];
     }
 
     /**
@@ -49,7 +49,7 @@ class Touch {
         if (!client)
             return;
 
-        this._logger.debug('touch', `Got TOUCH command`);
+        this._logger.debug('clear-cache', `Got CLEAR CACHE command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -58,28 +58,23 @@ class Touch {
             if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('touch', `Sending TOUCH response`);
+            this._logger.debug('touch', `Sending CLEAR CACHE response`);
             this.daemon.send(id, data);
         };
 
-        if (message.args.length != 1)
-            return reply(false, 'Invalid arguments list');
-
-        let name = message.args[0];
-        if (!this.directory.validatePath(name))
-            return reply(false, 'Invalid path');
-
-        this._cacher.unset(name)
-            .then(() => {
-                this.directory.notify(name);
-                return this.directory.touch(name)
+        this._redis.connect(this._config.get('cache.redis'))
+            .then(client => {
+                return client.query('FLUSHDB')
+                    .then(() => {
+                        client.done();
+                    })
             })
             .then(() => {
                reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Touch.handle()'));
+                this._logger.error(new WError(error, 'ClearCache.handle()'));
             });
     }
 
@@ -117,4 +112,4 @@ class Touch {
     }
 }
 
-module.exports = Touch;
+module.exports = ClearCache;
