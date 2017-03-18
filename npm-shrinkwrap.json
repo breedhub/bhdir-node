@@ -1,6 +1,6 @@
 {
   "name": "bhdir",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "dependencies": {
     "ansi-regex": {
       "version": "2.1.1",
@@ -8,7 +8,7 @@
       "resolved": "https://registry.npmjs.org/ansi-regex/-/ansi-regex-2.1.1.tgz"
     },
     "arpen": {
-      "version": "0.0.7",
+      "version": "0.0.8",
       "dependencies": {
         "abbrev": {
           "version": "1.1.0",
