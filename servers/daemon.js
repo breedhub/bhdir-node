@@ -94,26 +94,6 @@ class Daemon extends EventEmitter {
                 Promise.resolve()
             )
             .then(() => {
-                return this._filer.lockRead(path.join(this._config.base_path, 'package.json'));
-            })
-            .then(packageInfo => {
-                let json;
-                try {
-                    json = JSON.parse(packageInfo);
-                } catch (error) {
-                    json = { version: '?.?.?' };
-                }
-
-                let onExit = signal => {
-                    this._logger.info(`Terminating due to ${signal} signal`, () => { process.exit(0); });
-                    setTimeout(() => { process.exit(0); }, 10000);
-                };
-                this._logger.info(`Daemon v${json.version} started`);
-                process.on('SIGINT', () => { onExit('SIGINT'); });
-                process.on('SIGTERM', () => { onExit('SIGTERM'); });
-                process.on('SIGHUP', () => { /* ignore */ });
-            })
-            .then(() => {
                 this._logger.debug('daemon', 'Starting the server');
                 let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
                 try {
