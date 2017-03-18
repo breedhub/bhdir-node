@@ -138,8 +138,10 @@ class Daemon extends EventEmitter {
                     try {
                         fs.accessSync(sockDir, fs.constants.R_OK | fs.constants.W_OK);
                     } catch (error) {
-                        this._logger.error(`No access to ${sockDir}`);
-                        process.exit(1);
+                        this._logger.error(
+                            `No access to ${sockDir}`,
+                            () => { process.exit(1); }
+                        );
                     }
                     try {
                         fs.accessSync(sockFile, fs.constants.F_OK);
@@ -196,15 +198,23 @@ class Daemon extends EventEmitter {
 
         switch (error.code) {
             case 'EACCES':
-                this._logger.error('Could not bind to daemon socket');
+                this._logger.error(
+                    'Could not bind to daemon socket',
+                    () => { process.exit(1); }
+                );
                 break;
             case 'EADDRINUSE':
-                this._logger.error('Daemon socket is already in use');
+                this._logger.error(
+                    'Daemon socket is already in use',
+                    () => { process.exit(1); }
+                );
                 break;
             default:
-                this._logger.error(error);
+                this._logger.error(
+                    error,
+                    () => { process.exit(1); }
+                );
         }
-        process.exit(1);
     }
 
     /**

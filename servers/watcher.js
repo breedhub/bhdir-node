@@ -26,10 +26,10 @@ class Watcher extends EventEmitter {
         super();
 
         this.sessionId = util.getRandomString(8, { lower: true, upper: true, digits: true, special: false });
-
         this.updates = new Map();
         this.rootWatcher = null;
         this.updatesWatcher = null;
+        this.watchedFiles = new Map();
 
         this._name = null;
         this._app = app;
@@ -71,13 +71,6 @@ class Watcher extends EventEmitter {
     }
 
     /**
-     * Clean updates directory interval
-     */
-    static get retryUpdateInterval() {
-        return 1000; // ms
-    }
-
-    /**
      * Initialize the server
      * @param {string} name                     Config section name
      * @return {Promise}
@@ -85,22 +78,7 @@ class Watcher extends EventEmitter {
     init(name) {
         this._name = name;
 
-        return Promise.resolve()
-            .then(() => {
-                let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
-                try {
-                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
-                } catch (error) {
-                    throw new Error('Could not read bhdir.conf');
-                }
-
-                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
-                this._rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
-                if (!this._rootDir) {
-                    this._logger.error('No root parameter in directory section of bhdir.conf');
-                    process.exit(1);
-                }
-            });
+        return Promise.resolve();
     }
 
     /**
@@ -129,8 +107,8 @@ class Watcher extends EventEmitter {
             .then(() => {
                 this._logger.debug('watcher', 'Starting the server');
 
-                this._logger.debug('watcher', `Watching ${this._rootDir}`);
-                this.rootWatcher = fs.watch(this._rootDir, this.onChangeRoot.bind(this));
+                this._logger.debug('watcher', `Watching ${this._directory.rootDir}`);
+                this.rootWatcher = fs.watch(this._directory.rootDir, this.onChangeRoot.bind(this));
                 if (!this.rootWatcher)
                     throw new Error('Could not install root watcher');
 
@@ -138,7 +116,7 @@ class Watcher extends EventEmitter {
 
                 this._watchUpdates();
 
-                let files, updatesPath = path.join(this._rootDir, 'updates');
+                let files, updatesPath = path.join(this._directory.rootDir, 'updates');
                 try {
                     files = fs.readdirSync(updatesPath);
                 } catch (error) {
@@ -160,6 +138,25 @@ class Watcher extends EventEmitter {
             .then(() => {
                 this._cleanUpdatesTimer = setInterval(this.onCleanUpdates.bind(this), this.constructor.cleanUpdatesInterval);
             });
+    }
+
+    /**
+     * Try reading JSON file until its written if it exists
+     * @param {string} filename                         Name of the file
+     * @return {Promise}
+     */
+    readJson(filename) {
+        return this._addJsonFile(filename);
+    }
+
+    /**
+     * Try updating JSON file after it has been written if it exists, otherwise create
+     * @param {string} filename                         Name of the file
+     * @param {Function} cb                             Update callback
+     * @return {Promise}
+     */
+    updateJson(filename, cb) {
+        return this._addJsonFile(filename, cb);
     }
 
     /**
@@ -188,7 +185,7 @@ class Watcher extends EventEmitter {
     onChangeUpdates(eventType, filename) {
         this._logger.debug('watcher', `Updates event: ${eventType}, ${filename}`);
 
-        let files, updatesPath = path.join(this._rootDir, 'updates');
+        let files, updatesPath = path.join(this._directory.rootDir, 'updates');
         try {
             files = fs.readdirSync(updatesPath);
         } catch (error) {
@@ -199,26 +196,28 @@ class Watcher extends EventEmitter {
             if (this.updates.has(file))
                 continue;
 
-            this._readUpdate(path.join(updatesPath, file))
-                .then(json => {
-                    if (!json)
-                        return;
+            this.updates.set(file, {
+                timestamp: Date.now(),
+            });
 
-                    let parts = file.split('.');
-                    if (parts.length >= 3 && parts[1] != this.sessionId) {
-                        for (let path of json.paths) {
-                            this._logger.debug('watcher', `Path updated: ${path}`);
-                            this._cacher.unset(path)
-                                .then(
-                                    () => {
-                                        this._directory.notify(path);
-                                    },
-                                    error => {
-                                        this._directory.notify(path);
-                                        this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): unset'));
-                                    }
-                                );
-                        }
+            let parts = file.split('.');
+            if (parts.length != 3 || parts[1] == this.sessionId)
+                continue;
+
+            this.readJson(path.join(updatesPath, file))
+                .then(json => {
+                    for (let path of json.paths) {
+                        this._logger.debug('watcher', `Path updated: ${path}`);
+                        this._cacher.unset(path)
+                            .then(
+                                () => {
+                                    this._directory.notify(path);
+                                },
+                                error => {
+                                    this._directory.notify(path);
+                                    this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): unset'));
+                                }
+                            );
                     }
                 })
                 .catch(error => {
@@ -239,7 +238,7 @@ class Watcher extends EventEmitter {
      * Delete expired updates
      */
     onCleanUpdates() {
-        let updatesPath = path.join(this._rootDir, 'updates');
+        let updatesPath = path.join(this._directory.rootDir, 'updates');
         let expiration = Date.now() - this.constructor.updatesLifetime;
         for (let [ name, info ] of this.updates) {
             if (info.timestamp < expiration) {
@@ -253,11 +252,12 @@ class Watcher extends EventEmitter {
             }
         }
     }
+
     /**
      * Create and watch updates directory
      */
     _watchUpdates() {
-        let updates, updatesPath = path.join(this._rootDir, 'updates');
+        let updates, updatesPath = path.join(this._directory.rootDir, 'updates');
         try {
             fs.accessSync(updatesPath, fs.constants.F_OK);
             updates = true;
@@ -289,58 +289,132 @@ class Watcher extends EventEmitter {
         }
     }
 
-    /**
-     * Read update file until it parses
-     * @param {string} filename                 Filename
-     * @return {Promise}
-     */
-    _readUpdate(filename) {
+    _addJsonFile(filename, cb) {
         return new Promise((resolve, reject) => {
-            if (this.updates.has(path.basename(filename)))
-                return resolve(null);
+            let info = this.watchedFiles.get(filename);
+            if (!info) {
+                info = {
+                    timestamp: Date.now(),
+                    watch: fs.watch(filename, (eventType, name) => {
+                        this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
+                        this._processJsonFile(filename);
+                    }),
+                    process: [],
+                    success: [],
+                    error: [],
+                };
 
-            let init = { timestamp: Date.now() };
-            this.updates.set(path.basename(filename), init);
+                if (!info.watch)
+                    return reject(new Error('Could not install updates watcher'));
 
-            let read = () => {
-                if (!this.updates.has(path.basename(filename)))
-                    return resolve(null);
+                info.watch.on('error', error => {
+                    this._logger.error(`JSON ${filename} error: ${error.message}`);
+                });
 
-                this._filer.lockRead(filename)
-                    .then(update => {
-                        if (!this.updates.has(path.basename(filename)))
-                            return resolve(null);
+                this.watchedFiles.set(filename, info);
+            }
 
-                        let json;
-                        try {
-                            json = JSON.parse(update);
-                        } catch (error) {
-                            return setTimeout(() => { read(); }, this.constructor.retryUpdateInterval);
-                        }
+            if (cb)
+                info.process.push(cb);
+            info.success.push(resolve);
+            info.error.push(reject);
 
-                        if (!json.paths) {
-                            this._logger.error(`Update parse error: no paths`);
-                            try {
-                                fs.unlinkSync(filename);
-                            } catch (error) {
-                                // do nothing
-                            }
-                            return resolve(null);
-                        }
-
-                        json.timestamp = init.timestamp;
-                        this.updates.set(path.basename(filename), json);
-                        resolve(json);
-                    })
-                    .catch(error => {
-                        if (error.code == 'ENOENT')
-                            return resolve(null);
-
-                        reject(new WError(error, 'Watcher._readUpdate()'));
-                    });
-            };
-            read();
+            this._processJsonFile(filename);
         });
+    }
+
+    _processJsonFile(filename) {
+        let info = this.watchedFiles.get(filename);
+        if (!info)
+            return;
+
+        let complete = (json, error) => {
+            if (json) {
+                for (let cb of info.process)
+                    json = cb(json);
+                for (let cb of info.success)
+                    cb(json);
+            } else {
+                for (let cb of info.error)
+                    cb(error);
+            }
+            info.watch.close();
+            this.watchedFiles.delete(filename);
+            return json;
+        };
+
+        if (!info.process.length) {
+            return this._filer.lockRead(filename)
+                .then(contents => {
+                    let again = this.watchedFiles.get(filename);
+                    if (!again || again != info)
+                        return;
+                    if (again.process.length)
+                        return this._processJsonFile(filename);
+
+                    let json;
+                    try {
+                        json = JSON.parse(contents);
+                    } catch (error) {
+                        this._logger.debug('watcher', `Premature read of ${filename}`);
+                        return;
+                    }
+
+                    complete(json, null);
+                })
+                .catch(error => {
+                    let again = this.watchedFiles.get(filename);
+                    if (!again || again != info)
+                        return;
+                    if (again.process.length)
+                        return this._processJsonFile(filename);
+
+                    if (error.code == 'ENOENT')
+                        return complete({}, null);
+
+                    complete(null, error);
+                });
+        }
+
+        let exists;
+        try {
+            fs.accessSync(filename, fs.constants.F_OK);
+            exists = true;
+        } catch (error) {
+            exists = false;
+        }
+
+        return this._filer.lockUpdate(
+                filename,
+                contents => {
+                    let again = this.watchedFiles.get(filename);
+                    if (!again || again != info)
+                        return Promise.resolve(contents);
+
+                    let json;
+                    try {
+                        json = JSON.parse(contents);
+                    } catch (error) {
+                        if (exists) {
+                            this._logger.debug('watcher', `Premature read of ${filename}`);
+                            return Promise.resolve(contents);
+                        } else {
+                            json = {};
+                        }
+                    }
+
+                    json = complete(json, null);
+                    return Promise.resolve(JSON.stringify(json, undefined, 4));
+                },
+                { mode: this._directory.dirMode, uid: this._directory.user, gid: this._directory.group }
+            )
+            .catch(error => {
+                let again = this.watchedFiles.get(filename);
+                if (!again || again != info)
+                    return;
+
+                complete(null, error);
+            });
     }
 
     /**
