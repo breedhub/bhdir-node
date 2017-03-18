@@ -328,7 +328,13 @@ class Directory extends EventEmitter {
                             if (!content)
                                 return null;
 
-                            let json = JSON.parse(content);
+                            let json;
+                            try {
+                                json = JSON.parse(content);
+                            } catch (error) {
+                                return undefined;
+                            }
+
                             return json[name] || null;
                         },
                         error => {
@@ -339,6 +345,9 @@ class Directory extends EventEmitter {
                         }
                     )
                     .then(result => {
+                        if (typeof result == 'undefined')
+                            return null;
+
                         return this._cacher.set(filename, result)
                             .then(() => {
                                 return result;
@@ -360,53 +369,47 @@ class Directory extends EventEmitter {
         let directory = path.join(this._dataDir, parts.join('/'));
         let notified = false;
 
-        return this.get(filename)
-            .then(result => {
-                if (result === null)
-                    return;
+        return this._cacher.unset(filename)
+            .then(reply => {
+                if (typeof reply != 'undefined') {
+                    this.notify(filename);
+                    notified = true;
+                }
 
-                return this._cacher.unset(filename)
-                    .then(reply => {
-                        if (typeof reply != 'undefined') {
-                            this.notify(filename);
-                            notified = true;
-                        }
-
-                        return this._filer.createDirectory(
-                            directory,
-                            { mode: this._dirMode, uid: this._user, gid: this._group }
-                        );
-                    })
-                    .then(() => {
-                        return this._filer.createFile(
-                            path.join(directory, '.vars.json'),
-                            { mode: this._fileMode, uid: this._user, gid: this._group }
-                        );
-                    })
-                    .then(() => {
-                        return this._filer.lockUpdate(
-                            path.join(directory, '.vars.json'),
-                            content => {
-                                return new Promise((resolve, reject) => {
-                                    try {
-                                        let json = {};
-                                        if (content.trim().length)
-                                            json = JSON.parse(content.trim());
-                                        delete json[name];
-                                        resolve(JSON.stringify(json) + '\n');
-                                    } catch (error) {
-                                        reject(error);
-                                    }
-                                });
+                return this._filer.createDirectory(
+                    directory,
+                    { mode: this._dirMode, uid: this._user, gid: this._group }
+                );
+            })
+            .then(() => {
+                return this._filer.createFile(
+                    path.join(directory, '.vars.json'),
+                    { mode: this._fileMode, uid: this._user, gid: this._group }
+                );
+            })
+            .then(() => {
+                return this._filer.lockUpdate(
+                    path.join(directory, '.vars.json'),
+                    content => {
+                        return new Promise((resolve, reject) => {
+                            try {
+                                let json = {};
+                                if (content.trim().length)
+                                    json = JSON.parse(content.trim());
+                                delete json[name];
+                                resolve(JSON.stringify(json) + '\n');
+                            } catch (error) {
+                                reject(error);
                             }
-                        );
-                    })
-                    .then(() => {
-                        if (!notified)
-                            this.notify(filename);
+                        });
+                    }
+                );
+            })
+            .then(() => {
+                if (!notified)
+                    this.notify(filename);
 
-                        return this.touch(filename);
-                    });
+                return this.touch(filename);
             });
     }
 
