@@ -295,23 +295,33 @@ class Watcher extends EventEmitter {
             if (!info) {
                 info = {
                     timestamp: Date.now(),
-                    watch: fs.watch(filename, (eventType, name) => {
-                        this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
-                        this._processJsonFile(filename);
-                    }),
+                    watch: null,
                     process: [],
                     success: [],
                     error: [],
                 };
 
+                this.watchedFiles.set(filename, info);
+            }
+
+            let exists;
+            try {
+                fs.accessSync(filename, fs.constants.F_OK);
+                exists = true;
+            } catch (error) {
+                exists = false;
+            }
+
+            if (exists) {
+                info.watch = fs.watch(filename, (eventType, name) => {
+                    this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
+                    this._processJsonFile(filename);
+                });
                 if (!info.watch)
                     return reject(new Error('Could not install updates watcher'));
-
                 info.watch.on('error', error => {
                     this._logger.error(`JSON ${filename} error: ${error.message}`);
                 });
-
-                this.watchedFiles.set(filename, info);
             }
 
             if (cb)
@@ -338,12 +348,18 @@ class Watcher extends EventEmitter {
                 for (let cb of info.error)
                     cb(error);
             }
-            info.watch.close();
+
+            if (info.watch)
+                info.watch.close();
+
             this.watchedFiles.delete(filename);
             return json;
         };
 
         if (!info.process.length) {
+            if (!info.watch)
+                return complete({}, null);
+
             return this._filer.lockRead(filename)
                 .then(contents => {
                     let again = this.watchedFiles.get(filename);
@@ -369,19 +385,8 @@ class Watcher extends EventEmitter {
                     if (again.process.length)
                         return this._processJsonFile(filename);
 
-                    if (error.code == 'ENOENT')
-                        return complete({}, null);
-
                     complete(null, error);
                 });
-        }
-
-        let exists;
-        try {
-            fs.accessSync(filename, fs.constants.F_OK);
-            exists = true;
-        } catch (error) {
-            exists = false;
         }
 
         return this._filer.lockUpdate(
@@ -395,7 +400,7 @@ class Watcher extends EventEmitter {
                     try {
                         json = JSON.parse(contents);
                     } catch (error) {
-                        if (exists) {
+                        if (info.watch) {
                             this._logger.debug('watcher', `Premature read of ${filename}`);
                             return Promise.resolve(contents);
                         } else {

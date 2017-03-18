@@ -48,6 +48,12 @@ class Restart {
     run(argv) {
         let install = !!argv['i'];
 
+        let onSignal = this._app.onSignal;
+        this._app.onSignal = signal => {
+            if (signal != 'SIGHUP')
+                onSignal(signal);
+        };
+
         return this._stop.terminate()
             .then(() => {
                 if (install)

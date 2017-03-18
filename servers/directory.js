@@ -75,32 +75,49 @@ class Directory extends EventEmitter {
 
                 this.dataDir = path.join(this.rootDir, 'data');
 
-                this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '750', 8);
-                this.fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '640', 8);
+                this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '770', 8);
+                if (isNaN(this.dirMode))
+                    this.dirMode = null;
+                this.fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '660', 8);
+                if (isNaN(this.fileMode))
+                    this.fileMode = null;
+
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
                 let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() == 'freebsd' ? 'wheel' : 'root');
 
+                if (user === '999' || group === '999') { // TODO: Remove this
+                    user = bhdirConfig.directory.user = 'rslsync';
+                    group = bhdirConfig.directory.group = 'rslsync';
+                    fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+                }
+
                 return Promise.all([
-                        this._runner.exec('getent', [ 'passwd', user ]),
-                        this._runner.exec('getent', [ 'group', group ]),
+                        this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
+                        this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
                     ])
                     .then(([ userInfo, groupInfo ]) => {
                         if (user.length && parseInt(user).toString() == user) {
                             this.user = parseInt(user);
                         } else {
                             let userDb = userInfo.stdout.trim().split(':');
-                            if (userInfo.code !== 0 || userDb.length != 7)
-                                return this._logger.error('Directory user not found');
-                            this.user = parseInt(userDb[2]);
+                            if (userInfo.code !== 0 || userDb.length != 7) {
+                                this.user = null;
+                                this._logger.error(`Directory user ${user} not found`);
+                            } else {
+                                this.user = parseInt(userDb[2]);
+                            }
                         }
 
                         if (group.length && parseInt(group).toString() == group) {
                             this.group = parseInt(group);
                         } else {
                             let groupDb = groupInfo.stdout.trim().split(':');
-                            if (groupInfo.code !== 0 || groupDb.length != 4)
-                                return this._logger.error('Directory group not found');
-                            this.group = parseInt(groupDb[2]);
+                            if (groupInfo.code !== 0 || groupDb.length != 4) {
+                                this.group = null;
+                                this._logger.error(`Directory group ${group} not found`);
+                            } else {
+                                this.group = parseInt(groupDb[2]);
+                            }
                         }
                     });
             });
