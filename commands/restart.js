@@ -48,10 +48,6 @@ class Restart {
     run(argv) {
         let install = !!argv['i'];
 
-        process.on('SIGHUP', () => {
-            // ignore
-        });
-
         return this._stop.terminate()
             .then(() => {
                 if (install)
@@ -64,7 +60,7 @@ class Restart {
                 process.exit(0);
             })
             .catch(error => {
-                this.error(error.message);
+                return this.error(error.message);
             })
     }
 
@@ -73,8 +69,18 @@ class Restart {
      * @param {...*} args
      */
     error(...args) {
-        console.error(...args);
-        process.exit(1);
+        if (args.length)
+            args[args.length - 1] = args[args.length - 1] + '\n';
+
+        return this._app.error(...args)
+            .then(
+                () => {
+                    process.exit(1);
+                },
+                () => {
+                    process.exit(1);
+                }
+            );
     }
 }
 

@@ -15,13 +15,11 @@ class Get {
      * Create the service
      * @param {App} app                 The application
      * @param {object} config           Configuration
-     * @param {Logger} logger           Logger service
      * @param {Help} help               Help command
      */
-    constructor(app, config, logger, help) {
+    constructor(app, config, help) {
         this._app = app;
         this._config = config;
-        this._logger = logger;
         this._help = help;
     }
 
@@ -38,7 +36,7 @@ class Get {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'commands.help' ];
+        return [ 'app', 'config', 'commands.help' ];
     }
 
     /**
@@ -68,13 +66,15 @@ class Get {
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)
-                    this.error(`Error: ${response.message}`);
+                    throw new Error(`Error: ${response.message}`);
 
-                console.log(response.results[0]);
+                return this._app.info(response.results[0] + '\n');
+            })
+            .then(() => {
                 process.exit(0);
             })
             .catch(error => {
-                this.error(error.message);
+                return this.error(error.message);
             });
     }
 
@@ -97,13 +97,13 @@ class Get {
             };
 
             let socket = net.connect(sock, () => {
-                this._logger.debug('command', 'Connected to daemon');
+                this._app.debug('Connected to daemon');
                 socket.removeListener('error', onError);
                 socket.once('error', error => { this.error(error.message) });
 
                 let wrapper = new SocketWrapper(socket);
                 wrapper.on('receive', data => {
-                    this._logger.debug('command', 'Got daemon reply');
+                    this._app.debug('Got daemon reply');
                     resolve(data);
                     socket.end();
                 });
@@ -118,8 +118,18 @@ class Get {
      * @param {...*} args
      */
     error(...args) {
-        console.error(...args);
-        process.exit(1);
+        if (args.length)
+            args[args.length - 1] = args[args.length - 1] + '\n';
+
+        return this._app.error(...args)
+            .then(
+                () => {
+                    process.exit(1);
+                },
+                () => {
+                    process.exit(1);
+                }
+            );
     }
 }
 

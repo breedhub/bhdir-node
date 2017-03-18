@@ -109,9 +109,9 @@ class Daemon extends EventEmitter {
                     setTimeout(() => { process.exit(0); }, 10000);
                 };
                 this._logger.info(`Daemon v${json.version} started`);
-                process.on('SIGTERM', () => { onExit('SIGTERM'); });
                 process.on('SIGINT', () => { onExit('SIGINT'); });
-                process.on('SIGHUP', () => { onExit('SIGHUP'); });
+                process.on('SIGTERM', () => { onExit('SIGTERM'); });
+                process.on('SIGHUP', () => { /* ignore */ });
             })
             .then(() => {
                 this._logger.debug('daemon', 'Starting the server');

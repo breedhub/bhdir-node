@@ -49,7 +49,7 @@ class Stop {
                 process.exit(0);
             })
             .catch(error => {
-                this.error(error.message);
+                return this.error(error.message);
             })
     }
 
@@ -73,12 +73,13 @@ class Stop {
                                 if (result.code != 0)
                                     process.exit(1);
 
-                                if (++tries > 60) {
-                                    console.error('Daemon would not exit');
-                                    process.exit(1);
-                                }
+                                if (++tries > 60)
+                                    return this.error('Daemon would not exit');
 
                                 setTimeout(() => { waitExit(); }, 500);
+                            })
+                            .catch(error => {
+                                reject(error);
                             });
                     };
                     waitExit();
@@ -91,8 +92,18 @@ class Stop {
      * @param {...*} args
      */
     error(...args) {
-        console.error(...args);
-        process.exit(1);
+        if (args.length)
+            args[args.length - 1] = args[args.length - 1] + '\n';
+
+        return this._app.error(...args)
+            .then(
+                () => {
+                    process.exit(1);
+                },
+                () => {
+                    process.exit(1);
+                }
+            );
     }
 }
 

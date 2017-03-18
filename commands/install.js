@@ -14,13 +14,11 @@ class Install {
      * Create the service
      * @param {App} app                 The application
      * @param {object} config           Configuration
-     * @param {Logger} logger           Logger service
      * @param {Runner} runner           Runner service
      */
-    constructor(app, config, logger, runner) {
+    constructor(app, config, runner) {
         this._app = app;
         this._config = config;
-        this._logger = logger;
         this._runner = runner;
     }
 
@@ -37,7 +35,7 @@ class Install {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'runner' ];
+        return [ 'app', 'config', 'runner' ];
     }
 
     /**
@@ -51,7 +49,7 @@ class Install {
                 process.exit(0);
             })
             .catch(error => {
-                this.error(error.message);
+                return this.error(error.message);
             });
     }
 
@@ -61,10 +59,10 @@ class Install {
                 let configDir;
                 if (os.platform() == 'freebsd') {
                     configDir = '/usr/local/etc/bhdir';
-                    this._logger.debug('command', `Platform: FreeBSD`);
+                    this._app.debug(`Platform: FreeBSD`);
                 } else {
                     configDir = '/etc/bhdir';
-                    this._logger.debug('command', `Platform: Linux`);
+                    this._app.debug(`Platform: Linux`);
                 }
 
                 try {
@@ -73,7 +71,7 @@ class Install {
                     try {
                         fs.mkdirSync(configDir, 0o750);
                     } catch (error) {
-                        this.error(`Could not create ${configDir}`);
+                        return this.error(`Could not create ${configDir}`);
                     }
                 }
                 try {
@@ -82,7 +80,7 @@ class Install {
                     try {
                         fs.mkdirSync('/var/run/bhdir', 0o755);
                     } catch (error) {
-                        this.error(`Could not create /var/run/bhdir`);
+                        return this.error(`Could not create /var/run/bhdir`);
                     }
                 }
                 try {
@@ -91,7 +89,7 @@ class Install {
                     try {
                         fs.mkdirSync('/var/log/bhdir', 0o755);
                     } catch (error) {
-                        this.error(`Could not create /var/log/bhdir`);
+                        return this.error(`Could not create /var/log/bhdir`);
                     }
                 }
                 try {
@@ -100,12 +98,12 @@ class Install {
                     try {
                         fs.mkdirSync('/var/lib/bhdir', 0o755);
                     } catch (error) {
-                        this.error(`Could not create /var/lib/bhdir`);
+                        return this.error(`Could not create /var/lib/bhdir`);
                     }
                 }
 
                 try {
-                    this._logger.debug('command', 'Creating default config');
+                    this._app.debug('Creating default config');
                     fs.accessSync(path.join(configDir, 'bhdir.conf'), fs.constants.F_OK);
                 } catch (error) {
                     try {
@@ -114,12 +112,12 @@ class Install {
                         fs.writeFileSync(path.join(configDir, 'bhdir.conf'), config, { mode: 0o640 });
                     } catch (error) {
                         console.log(error);
-                        this.error(`Could not create bhdir.conf`);
+                        return this.error(`Could not create bhdir.conf`);
                     }
                 }
                 try {
                     fs.accessSync('/etc/systemd/system', fs.constants.F_OK);
-                    this._logger.debug('command', 'Creating systemd service');
+                    this._app.debug('Creating systemd service');
                     let service = fs.readFileSync(path.join(__dirname, '..', 'systemd.service'), {encoding: 'utf8'});
                     fs.writeFileSync('/etc/systemd/system/bhdir.service', service, {mode: 0o644});
                 } catch (error) {
@@ -127,7 +125,7 @@ class Install {
                 }
                 try {
                     fs.accessSync('/etc/init.d', fs.constants.F_OK);
-                    this._logger.debug('command', 'Creating sysvinit service');
+                    this._app.debug('Creating sysvinit service');
                     let service = fs.readFileSync(path.join(__dirname, '..', 'sysvinit.service'), {encoding: 'utf8'});
                     fs.writeFileSync('/etc/init.d/bhdir', service, {mode: 0o755});
                 } catch (error) {
@@ -141,8 +139,18 @@ class Install {
      * @param {...*} args
      */
     error(...args) {
-        console.error(...args);
-        process.exit(1);
+        if (args.length)
+            args[args.length - 1] = args[args.length - 1] + '\n';
+
+        return this._app.error(...args)
+            .then(
+                () => {
+                    process.exit(1);
+                },
+                () => {
+                    process.exit(1);
+                }
+            );
     }
 }
 

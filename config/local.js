@@ -82,7 +82,6 @@ module.exports = {
         main: {
             level: (userConfig.daemon && userConfig.daemon.log_level) || 'info',
             default: true,
-            echo: false,
             name: 'bhdir.log',
             path: '/var/log/bhdir',
             interval: '1d',
