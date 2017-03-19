@@ -308,7 +308,7 @@ class Directory extends EventEmitter {
 
                 return this._watcher.readJson(path.join(directory, '.vars.json'))
                     .then(json => {
-                        let result = json[name] || null;
+                        let result = typeof json[name] == 'undefined' ? null : json[name];
 
                         return this._cacher.set(filename, result)
                             .then(() => {
