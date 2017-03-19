@@ -2,13 +2,20 @@
 
 const fs = require('fs-ext');
 const path = require('path');
+const merge = require('merge');
 const stripAnsi = require('strip-ansi');
 const Runner = require(path.join(__dirname, '..', 'node_modules', 'arpen', 'src', 'services', 'runner.js'));
 const Emailer = require(path.join(__dirname, '..', 'node_modules', 'arpen', 'src', 'services', 'emailer.js'));
 
 let config, runner, emailer, log;
 try {
-    config = require(path.join(__dirname, '..', 'config', 'global.js'));
+    let localConf, globalConf = require(path.join(__dirname, '..', 'config', 'global.js'));
+    try {
+        localConf = require(path.join(__dirname, '..', 'config', 'local.js'));
+    } catch (error) {
+        localConf = {};
+    }
+    config = merge.recursive(true, globalConf, localConf);
     runner = new Runner();
     emailer = new Emailer(config);
 
