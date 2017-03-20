@@ -62,7 +62,7 @@ class Get {
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
             .then(reply => {
                 let response = JSON.parse(reply.toString());
-                if (response.id != request.id || !response.results.length)
+                if (response.id !== request.id || !response.results.length)
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)
@@ -87,7 +87,7 @@ class Get {
     send(request, sockName) {
         return new Promise((resolve, reject) => {
             let sock;
-            if (sockName && sockName[0] == '/')
+            if (sockName && sockName[0] === '/')
                 sock = sockName;
             else
                 sock = path.join('/var', 'run', this._config.project, this._config.instance + (sockName || '') + '.sock');

@@ -97,7 +97,7 @@ class Watcher extends EventEmitter {
                             return;
 
                         let result = curModule.register(name);
-                        if (result === null || typeof result != 'object' || typeof result.then != 'function')
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
                             throw new Error(`Module '${curName}' register() did not return a Promise`);
                         return result;
                     });
@@ -201,7 +201,7 @@ class Watcher extends EventEmitter {
             });
 
             let parts = file.split('.');
-            if (parts.length != 3 || parts[1] == this.sessionId)
+            if (parts.length !== 3 || parts[1] === this.sessionId)
                 continue;
 
             this.readJson(path.join(updatesPath, file))
@@ -363,7 +363,7 @@ class Watcher extends EventEmitter {
             return this._filer.lockRead(filename)
                 .then(contents => {
                     let again = this.watchedFiles.get(filename);
-                    if (!again || again != info)
+                    if (!again || again !== info)
                         return;
                     if (again.process.length)
                         return this._processJsonFile(filename);
@@ -380,7 +380,7 @@ class Watcher extends EventEmitter {
                 })
                 .catch(error => {
                     let again = this.watchedFiles.get(filename);
-                    if (!again || again != info)
+                    if (!again || again !== info)
                         return;
                     if (again.process.length)
                         return this._processJsonFile(filename);
@@ -393,7 +393,7 @@ class Watcher extends EventEmitter {
                 filename,
                 contents => {
                     let again = this.watchedFiles.get(filename);
-                    if (!again || again != info)
+                    if (!again || again !== info)
                         return Promise.resolve(contents);
 
                     let json;
@@ -415,7 +415,7 @@ class Watcher extends EventEmitter {
             )
             .catch(error => {
                 let again = this.watchedFiles.get(filename);
-                if (!again || again != info)
+                if (!again || again !== info)
                     return;
 
                 complete(null, error);

@@ -51,7 +51,7 @@ class Prepare {
         return Promise.resolve()
             .then(() => {
                 let configDir;
-                if (os.platform() == 'freebsd') {
+                if (os.platform() === 'freebsd') {
                     configDir = '/usr/local/etc/bhdir';
                     this._app.debug(`Platform: FreeBSD`);
                 } else {
@@ -64,7 +64,7 @@ class Prepare {
                 if (!rootDir)
                     throw new Error('No root parameter in directory section of bhdir.conf');
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
-                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() == 'freebsd' ? 'wheel' : 'root');
+                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
                 return Promise.all([
                         this._runner.exec('chown', [ '-R', `${user}:${group}`, rootDir ]),
@@ -85,7 +85,7 @@ class Prepare {
                 return this.send(Buffer.from(JSON.stringify(request), 'utf8'), argv['z'])
                     .then(reply => {
                         let response = JSON.parse(reply.toString());
-                        if (response.id != request.id)
+                        if (response.id !== request.id)
                             throw new Error('Invalid reply from daemon');
 
                         if (!response.success)
@@ -108,7 +108,7 @@ class Prepare {
     send(request, sockName) {
         return new Promise((resolve, reject) => {
             let sock;
-            if (sockName && sockName[0] == '/')
+            if (sockName && sockName[0] === '/')
                 sock = sockName;
             else
                 sock = path.join('/var', 'run', this._config.project, this._config.instance + (sockName || '') + '.sock');

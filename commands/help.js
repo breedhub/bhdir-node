@@ -45,7 +45,7 @@ class Help {
             return this.usage();
 
         let method = this[`help${this._util.dashedToCamel(argv['_'][1], true)}`];
-        if (typeof method != 'function')
+        if (typeof method !== 'function')
             return this.usage();
 
         return method.call(this, argv);

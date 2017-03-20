@@ -50,7 +50,7 @@ class Daemon {
      * @return {Promise}
      */
     register(name) {
-        if (this._config.get(`servers.${name}.class`) != 'servers.daemon')
+        if (this._config.get(`servers.${name}.class`) !== 'servers.daemon')
             return Promise.resolve();
 
         let server = this._app.get('servers').get('daemon');

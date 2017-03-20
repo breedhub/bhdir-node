@@ -50,7 +50,7 @@ class Restart {
 
         let onSignal = this._app.onSignal;
         this._app.onSignal = signal => {
-            if (signal != 'SIGHUP')
+            if (signal !== 'SIGHUP')
                 onSignal(signal);
         };
 

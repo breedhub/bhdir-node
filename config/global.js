@@ -8,7 +8,7 @@ const ini = require('ini');
 
 let userConfig;
 try {
-    userConfig = ini.parse(fs.readFileSync(os.platform() == 'freebsd' ? '/usr/local/etc/bhdir/bhdir.conf' : '/etc/bhdir/bhdir.conf', 'utf8'));
+    userConfig = ini.parse(fs.readFileSync(os.platform() === 'freebsd' ? '/usr/local/etc/bhdir/bhdir.conf' : '/etc/bhdir/bhdir.conf', 'utf8'));
 } catch (error) {
     userConfig = {};
 }

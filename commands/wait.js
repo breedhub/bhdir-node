@@ -64,14 +64,14 @@ class Wait {
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
             .then(reply => {
                 let response = JSON.parse(reply.toString());
-                if (response.id != request.id)
+                if (response.id !== request.id)
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
                 if (response.timeout)
                     throw new Error(`Timeout`);
-                else if (response.results.length != 1)
+                else if (response.results.length !== 1)
                     throw new Error('Invalid reply from daemon');
 
                 return this._app.info(response.results[0] + '\n');
@@ -93,7 +93,7 @@ class Wait {
     send(request, sockName) {
         return new Promise((resolve, reject) => {
             let sock;
-            if (sockName && sockName[0] == '/')
+            if (sockName && sockName[0] === '/')
                 sock = sockName;
             else
                 sock = path.join('/var', 'run', this._config.project, this._config.instance + (sockName || '') + '.sock');

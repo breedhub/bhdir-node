@@ -63,7 +63,7 @@ class Set {
                 }
                 break;
             case 'boolean':
-                setValue = (setValue.toLowerCase() == 'true');
+                setValue = (setValue.toLowerCase() === 'true');
                 break;
             case 'json':
                 try {
@@ -88,7 +88,7 @@ class Set {
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
             .then(reply => {
                 let response = JSON.parse(reply.toString());
-                if (response.id != request.id)
+                if (response.id !== request.id)
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)
@@ -110,7 +110,7 @@ class Set {
     send(request, sockName) {
         return new Promise((resolve, reject) => {
             let sock;
-            if (sockName && sockName[0] == '/')
+            if (sockName && sockName[0] === '/')
                 sock = sockName;
             else
                 sock = path.join('/var', 'run', this._config.project, this._config.instance + (sockName || '') + '.sock');

@@ -80,7 +80,7 @@ function exit(rc) {
 }
 process.on('SIGTERM', exit);
 
-let pidBuffer = Buffer(process.pid.toString() + '\n');
+let pidBuffer = new Buffer(process.pid.toString() + '\n');
 fs.ftruncateSync(fd);
 fs.writeSync(fd, pidBuffer, 0, pidBuffer.length, null);
 

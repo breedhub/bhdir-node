@@ -57,7 +57,7 @@ class Install {
         return Promise.resolve()
             .then(() => {
                 let configDir;
-                if (os.platform() == 'freebsd') {
+                if (os.platform() === 'freebsd') {
                     configDir = '/usr/local/etc/bhdir';
                     this._app.debug(`Platform: FreeBSD`);
                 } else {
@@ -108,7 +108,7 @@ class Install {
                 } catch (error) {
                     try {
                         let config = fs.readFileSync(path.join(__dirname, '..', 'bhdir.conf'), { encoding: 'utf8'});
-                        config = config.replace(/GROUP/g, os.platform() == 'freebsd' ? 'wheel' : 'root');
+                        config = config.replace(/GROUP/g, os.platform() === 'freebsd' ? 'wheel' : 'root');
                         fs.writeFileSync(path.join(configDir, 'bhdir.conf'), config, { mode: 0o640 });
                     } catch (error) {
                         console.log(error);

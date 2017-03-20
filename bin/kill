@@ -59,7 +59,7 @@ try {
                     console.error(error.message);
                     process.exit(1);
                 }
-                if (bytesRead != stats.size) {
+                if (bytesRead !== stats.size) {
                     console.error('Could not read PID file');
                     process.exit(1);
                 }

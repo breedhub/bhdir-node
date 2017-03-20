@@ -1,5 +1,5 @@
 /**
- * Clear Cachge event
+ * Clear Cache event
  * @module daemon/events/clear-cache
  */
 const uuid = require('uuid');

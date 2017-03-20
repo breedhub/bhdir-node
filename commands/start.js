@@ -54,7 +54,7 @@ class Start {
                 return this.launch()
             })
             .then(result => {
-                if (result.code != 0) {
+                if (result.code !== 0) {
                     console.log(result.stdout);
                     console.error(result.stderr);
                     process.exit(1);

@@ -86,7 +86,7 @@ class Daemon extends EventEmitter {
                             return;
 
                         let result = curModule.register(name);
-                        if (result === null || typeof result != 'object' || typeof result.then != 'function')
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
                             throw new Error(`Module '${curName}' register() did not return a Promise`);
                         return result;
                     });
@@ -95,7 +95,7 @@ class Daemon extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('daemon', 'Starting the server');
-                let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                let configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
                 try {
                     fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
                 } catch (error) {
@@ -108,18 +108,18 @@ class Daemon extends EventEmitter {
                     this._socketMode = null;
 
                 let user = (bhdirConfig.socket && bhdirConfig.socket.user) || 'root';
-                let group = (bhdirConfig.socket && bhdirConfig.socket.group) || (os.platform() == 'freebsd' ? 'wheel' : 'root');
+                let group = (bhdirConfig.socket && bhdirConfig.socket.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
                 return Promise.all([
                         this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
                         this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
                     ])
                     .then(([ userInfo, groupInfo ]) => {
-                        if (user.length && parseInt(user).toString() == user) {
+                        if (user.length && parseInt(user).toString() === user) {
                             this._socketUser = parseInt(user);
                         } else {
                             let userDb = userInfo.stdout.trim().split(':');
-                            if (userInfo.code !== 0 || userDb.length != 7) {
+                            if (userInfo.code !== 0 || userDb.length !== 7) {
                                 this._socketUser = null;
                                 this._logger.error(`Socket user ${user} not found`);
                             } else {
@@ -127,11 +127,11 @@ class Daemon extends EventEmitter {
                             }
                         }
 
-                        if (group.length && parseInt(group).toString() == group) {
+                        if (group.length && parseInt(group).toString() === group) {
                             this._socketGroup = parseInt(group);
                         } else {
                             let groupDb = groupInfo.stdout.trim().split(':');
-                            if (groupInfo.code !== 0 || groupDb.length != 4) {
+                            if (groupInfo.code !== 0 || groupDb.length !== 4) {
                                 this._socketGroup = null;
                                 this._logger.error(`Socket group ${group} not found`);
                             } else {
@@ -168,11 +168,11 @@ class Daemon extends EventEmitter {
     /**
      * Parse protocol command
      * @param {Buffer} data                 Raw data
-     * @retun {object}                      Returns parsed JSON
+     * @return {object}                      Returns parsed JSON
      */
     parse(data) {
         let json = JSON.parse(data.toString());
-        if (typeof json.command != 'string')
+        if (typeof json.command !== 'string')
             throw new Error('Invalid protocol command');
         if (json.args) {
             if (!Array.isArray(json.args))

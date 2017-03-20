@@ -62,7 +62,7 @@ class Touch {
             this.daemon.send(id, data);
         };
 
-        if (message.args.length != 1)
+        if (message.args.length !== 1)
             return reply(false, 'Invalid arguments list');
 
         let name = message.args[0];

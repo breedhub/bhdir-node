@@ -70,7 +70,7 @@ class Stop {
                                 if (result.code === 100)
                                     return resolve();
 
-                                if (result.code != 0)
+                                if (result.code !== 0)
                                     process.exit(1);
 
                                 if (++tries > 60)

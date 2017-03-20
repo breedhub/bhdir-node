@@ -68,7 +68,7 @@ class Wait {
             this.daemon.send(id, data);
         };
 
-        if (message.args.length != 2)
+        if (message.args.length !== 2)
             return reply(false, 'Invalid arguments list');
 
         let name = message.args[0];

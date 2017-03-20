@@ -61,7 +61,7 @@ class Directory extends EventEmitter {
         this._name = name;
         return Promise.resolve()
             .then(() => {
-                let configPath = (os.platform() == 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                let configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
                 try {
                     fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
                 } catch (error) {
@@ -83,7 +83,7 @@ class Directory extends EventEmitter {
                     this.fileMode = null;
 
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
-                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() == 'freebsd' ? 'wheel' : 'root');
+                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
                 if (user === '999' || group === '999') { // TODO: Remove this
                     user = bhdirConfig.directory.user = 'rslsync';
@@ -96,11 +96,11 @@ class Directory extends EventEmitter {
                         this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
                     ])
                     .then(([ userInfo, groupInfo ]) => {
-                        if (user.length && parseInt(user).toString() == user) {
+                        if (user.length && parseInt(user).toString() === user) {
                             this.user = parseInt(user);
                         } else {
                             let userDb = userInfo.stdout.trim().split(':');
-                            if (userInfo.code !== 0 || userDb.length != 7) {
+                            if (userInfo.code !== 0 || userDb.length !== 7) {
                                 this.user = null;
                                 this._logger.error(`Directory user ${user} not found`);
                             } else {
@@ -108,11 +108,11 @@ class Directory extends EventEmitter {
                             }
                         }
 
-                        if (group.length && parseInt(group).toString() == group) {
+                        if (group.length && parseInt(group).toString() === group) {
                             this.group = parseInt(group);
                         } else {
                             let groupDb = groupInfo.stdout.trim().split(':');
-                            if (groupInfo.code !== 0 || groupDb.length != 4) {
+                            if (groupInfo.code !== 0 || groupDb.length !== 4) {
                                 this.group = null;
                                 this._logger.error(`Directory group ${group} not found`);
                             } else {
@@ -139,7 +139,7 @@ class Directory extends EventEmitter {
                             return;
 
                         let result = curModule.register(name);
-                        if (result === null || typeof result != 'object' || typeof result.then != 'function')
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
                             throw new Error(`Module '${curName}' register() did not return a Promise`);
                         return result;
                     });
@@ -160,14 +160,14 @@ class Directory extends EventEmitter {
      * @return {boolean}
      */
     validatePath(filename) {
-        if (typeof filename != 'string')
+        if (typeof filename !== 'string')
             return false;
 
         return (
             filename.length &&
-            filename[0] == '/' &&
-            filename[filename.length - 1] != '/' &&
-            filename.indexOf('/.') == -1
+            filename[0] === '/' &&
+            filename[filename.length - 1] !== '/' &&
+            filename.indexOf('/.') === -1
         );
     }
 
@@ -261,7 +261,7 @@ class Directory extends EventEmitter {
 
                 return this._cacher.set(filename, value)
                     .then(reply => {
-                        if (typeof reply != 'undefined') {
+                        if (typeof reply !== 'undefined') {
                             this.notify(filename);
                             notified = true;
                         }
@@ -303,12 +303,12 @@ class Directory extends EventEmitter {
 
         return this._cacher.get(filename)
             .then(result => {
-                if (typeof result != 'undefined')
+                if (typeof result !== 'undefined')
                     return result;
 
                 return this._watcher.readJson(path.join(directory, '.vars.json'))
                     .then(json => {
-                        let result = typeof json[name] == 'undefined' ? null : json[name];
+                        let result = typeof json[name] === 'undefined' ? null : json[name];
 
                         return this._cacher.set(filename, result)
                             .then(() => {
@@ -333,7 +333,7 @@ class Directory extends EventEmitter {
 
         return this._cacher.unset(filename)
             .then(reply => {
-                if (typeof reply != 'undefined') {
+                if (typeof reply !== 'undefined') {
                     this.notify(filename);
                     notified = true;
                 }
