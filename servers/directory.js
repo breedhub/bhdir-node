@@ -21,9 +21,10 @@ class Directory extends EventEmitter {
      * @param {Logger} logger               Logger service
      * @param {Filer} filer                 Filer service
      * @param {Runner} runner               Runner service
+     * @param {RedisClient} redis           Redis service
      * @param {Cacher} cacher               Cacher service
      */
-    constructor(app, config, logger, filer, runner, cacher) {
+    constructor(app, config, logger, filer, runner, redis, cacher) {
         super();
 
         this.waiting = new Map();
@@ -34,6 +35,7 @@ class Directory extends EventEmitter {
         this._logger = logger;
         this._filer = filer;
         this._runner = runner;
+        this._redis = redis;
         this._cacher = cacher;
     }
 
@@ -50,7 +52,7 @@ class Directory extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer', 'runner', 'cacher' ];
+        return [ 'app', 'config', 'logger', 'filer', 'runner', 'redis', 'cacher' ];
     }
 
     /**
@@ -121,6 +123,15 @@ class Directory extends EventEmitter {
                                 this.group = parseInt(groupDb[2]);
                             }
                         }
+                    });
+            })
+            .then(() => {
+                return this._redis.connect(this._config.get('cache.redis'))
+                    .then(client => {
+                        return client.query('FLUSHDB')
+                            .then(() => {
+                                client.done();
+                            })
                     });
             });
     }
@@ -230,7 +241,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     touch(event, filename, mtime) {
-        let hash = crypto.createHash('sha256').update(filename).digest('hex');
+        let hash = crypto.createHash('md5').update(filename).digest('hex');
         let json = {
             vars: [
                 {
@@ -308,7 +319,7 @@ class Directory extends EventEmitter {
                         let mtime = 0;
                         try {
                             let stats = fs.statSync(varsFile);
-                            mtime = stats.mtime;
+                            mtime = stats.mtime.getTime();
                         } catch (error) {
                             // do nothing
                         }

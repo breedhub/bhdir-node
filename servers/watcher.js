@@ -233,28 +233,28 @@ class Watcher extends EventEmitter {
                                         json => {
                                             for (let key of Object.keys(json)) {
                                                 let varName = path.join(directory || '/', key);
-                                                ((varName, key) => {
+                                                ((varName, value) => {
                                                     this._cacher.get(varName)
                                                         .then(result => {
-                                                            if (typeof result === 'undefined' || result === json[key])
+                                                            if (typeof result === 'undefined' || result === value)
                                                                 return;
 
-                                                            return this._cacher.set(varName, json[key]);
+                                                            return this._cacher.set(varName, value);
                                                         })
                                                         .then(() => {
-                                                            this._directory.notify(varName, json[key]);
+                                                            this._directory.notify(varName, value);
                                                         })
                                                         .catch(error => {
                                                             this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): update'));
                                                         });
-                                                })(varName, key);
+                                                })(varName, json[key]);
                                             }
                                         },
                                         error => {
                                             this._logger.error(`Vars file ${varsFile} error: ${error.message}`);
                                         }
                                     );
-                                } else {
+                                } else if (eventType !== 'init') {
                                     this._processJsonFile(this.watchedVarFiles, varsFile);
                                 }
                             }
@@ -399,7 +399,7 @@ class Watcher extends EventEmitter {
             let exists;
             try {
                 let stat = fs.statSync(filename);
-                if (info.mtime && stat.mtime < info.mtime)
+                if (info.mtime && stat.mtime.getTime() < info.mtime)
                     return;
                 exists = true;
             } catch (error) {
@@ -458,7 +458,7 @@ class Watcher extends EventEmitter {
         let exists;
         try {
             let stat = fs.statSync(filename);
-            if (info.mtime && stat.mtime < info.mtime)
+            if (info.mtime && stat.mtime.getTime() < info.mtime)
                 return;
             exists = true;
         } catch (error) {
