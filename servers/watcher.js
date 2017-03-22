@@ -190,7 +190,7 @@ class Watcher extends EventEmitter {
             return;
         }
 
-        for (let filename of files || []) {
+        for (let filename of files) {
             if (this.watchedUpdates.has(filename))
                 continue;
 
@@ -201,7 +201,7 @@ class Watcher extends EventEmitter {
                 true,
                 null,
                 json => {
-                    for (let update of json.vars | []) {
+                    for (let update of json.vars || []) {
                         let parts = update.path.split('/');
                         parts.pop();
                         let directory = parts.join('/');
@@ -491,7 +491,7 @@ class Watcher extends EventEmitter {
                     let again = map.get(filename);
                     if (!again || again !== info)
                         return;
-                    if (again.process.length)
+                    if (again.nextProcess.size || again.permanentProcess.size)
                         return this._processJsonFile(map, filename);
 
                     let json;
@@ -508,7 +508,7 @@ class Watcher extends EventEmitter {
                     let again = map.get(filename);
                     if (!again || again !== info)
                         return;
-                    if (again.process.length)
+                    if (again.nextProcess.size || again.permanentProcess.size)
                         return this._processJsonFile(map, filename);
 
                     complete(null, error);

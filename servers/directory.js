@@ -241,10 +241,10 @@ class Directory extends EventEmitter {
             ],
         };
         return this._filer.lockWrite(
-            path.join(this.updatesDir, hash + '.json'),
-            JSON.stringify(json, undefined, 4) + '\n',
-            { mode: this.fileMode, uid: this.user, gid: this.group }
-        );
+                path.join(this.updatesDir, hash + '.json'),
+                JSON.stringify(json, undefined, 4) + '\n',
+                { mode: this.fileMode, uid: this.user, gid: this.group }
+            );
     }
 
     /**
