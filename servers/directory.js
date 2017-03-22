@@ -319,7 +319,7 @@ class Directory extends EventEmitter {
                         let mtime = 0;
                         try {
                             let stats = fs.statSync(varsFile);
-                            mtime = stats.mtime.getTime();
+                            mtime = Math.floor(stats.mtime.getTime() / 1000);
                         } catch (error) {
                             // do nothing
                         }

@@ -399,7 +399,7 @@ class Watcher extends EventEmitter {
             let exists;
             try {
                 let stat = fs.statSync(filename);
-                if (info.mtime && stat.mtime.getTime() < info.mtime)
+                if (info.mtime && Math.floor(stat.mtime.getTime() / 1000) < info.mtime)
                     return;
                 exists = true;
             } catch (error) {
@@ -458,7 +458,7 @@ class Watcher extends EventEmitter {
         let exists;
         try {
             let stat = fs.statSync(filename);
-            if (info.mtime && stat.mtime.getTime() < info.mtime)
+            if (info.mtime && Math.floor(stat.mtime.getTime() / 1000) < info.mtime)
                 return;
             exists = true;
         } catch (error) {
