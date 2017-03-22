@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const ini = require('ini');
+const uuid = require('uuid');
 const EventEmitter = require('events');
 const WError = require('verror').WError;
 
@@ -25,11 +26,11 @@ class Watcher extends EventEmitter {
     constructor(app, config, logger, filer, cacher, util) {
         super();
 
-        this.sessionId = util.getRandomString(8, { lower: true, upper: true, digits: true, special: false });
-        this.updates = new Map();
+        this.sessionId = uuid.v1();
         this.rootWatcher = null;
         this.updatesWatcher = null;
-        this.watchedFiles = new Map();
+        this.watchedUpdates = new Map();
+        this.watchedVarFiles = new Map();
 
         this._name = null;
         this._app = app;
@@ -57,16 +58,18 @@ class Watcher extends EventEmitter {
     }
 
     /**
-     * Update entry lifetime
+     * Watch updates this long after last update
+     * @type {number}
      */
-    static get updatesLifetime() {
+    static get watchedPeriod() {
         return 10 * 60 * 1000; // ms
     }
 
     /**
      * Clean updates directory interval
+     * @type {number}
      */
-    static get cleanUpdatesInterval() {
+    static get cleanWatchedInterval() {
         return 10 * 1000; // ms
     }
 
@@ -115,28 +118,9 @@ class Watcher extends EventEmitter {
                 this.rootWatcher.on('error', this.onErrorRoot.bind(this));
 
                 this._watchUpdates();
-
-                let files, updatesPath = path.join(this._directory.rootDir, 'updates');
-                try {
-                    files = fs.readdirSync(updatesPath);
-                } catch (error) {
-                    // do nothing
-                }
-
-                if (files) {
-                    return files.reduce(
-                        (prev, file) => {
-                            return prev.then(() => {
-                                let json = { timestamp: Date.now() };
-                                this.updates.set(file, json);
-                            });
-                        },
-                        Promise.resolve()
-                    );
-                }
             })
             .then(() => {
-                this._cleanUpdatesTimer = setInterval(this.onCleanUpdates.bind(this), this.constructor.cleanUpdatesInterval);
+                this._watchedTimer = setInterval(this.onWatchedTimer.bind(this), this.constructor.cleanWatchedInterval);
             });
     }
 
@@ -146,7 +130,14 @@ class Watcher extends EventEmitter {
      * @return {Promise}
      */
     readJson(filename) {
-        return this._addJsonFile(filename);
+        let parts = filename.split('/');
+        parts.pop();
+        let directory = parts.join('/');
+        let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
+
+        return new Promise((resolve, reject) => {
+            this._addJsonFile(this.watchedVarFiles, varsFile, 0, false, null, resolve, reject);
+        });
     }
 
     /**
@@ -156,13 +147,20 @@ class Watcher extends EventEmitter {
      * @return {Promise}
      */
     updateJson(filename, cb) {
-        return this._addJsonFile(filename, cb);
+        let parts = filename.split('/');
+        parts.pop();
+        let directory = parts.join('/');
+        let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
+
+        return new Promise((resolve, reject) => {
+            this._addJsonFile(this.watchedVarFiles, varsFile, 0, false, cb, resolve, reject);
+        });
     }
 
     /**
      * Root directory changed
      * @param {string} eventType                        Either 'rename' or 'change'
-     * @param {string} [filename]                       Name of the file
+     * @param {string|null} filename                    Name of the file
      */
     onChangeRoot(eventType, filename) {
         this._logger.debug('watcher', `Root event: ${eventType}, ${filename}`);
@@ -180,49 +178,87 @@ class Watcher extends EventEmitter {
     /**
      * Updates directory changed
      * @param {string} eventType                        Either 'rename' or 'change'
-     * @param {string} [filename]                       Name of the file
+     * @param {string|null} filename                    Name of the file
      */
     onChangeUpdates(eventType, filename) {
         this._logger.debug('watcher', `Updates event: ${eventType}, ${filename}`);
 
-        let files, updatesPath = path.join(this._directory.rootDir, 'updates');
+        let files;
         try {
-            files = fs.readdirSync(updatesPath);
+            files = fs.readdirSync(this._directory.updatesDir);
         } catch (error) {
             return;
         }
 
-        for (let file of files) {
-            if (this.updates.has(file))
+        for (let file of files || []) {
+            let filename = path.join(this._directory.updatesDir, file);
+            if (this.watchedUpdates.has(filename))
                 continue;
 
-            this.updates.set(file, {
-                timestamp: Date.now(),
-            });
+            this._addJsonFile(
+                this.watchedUpdates,
+                filename,
+                0,
+                true,
+                null,
+                json => {
+                    for (let update of json.vars | []) {
+                        let parts = update.path.split('/');
+                        parts.pop();
+                        let directory = parts.join('/');
+                        let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
+                        let info = this.watchedVarFiles.get(varsFile);
+                        if (info)
+                            info.mtime = update.mtime;
 
-            let parts = file.split('.');
-            if (parts.length !== 3 || parts[1] === this.sessionId)
-                continue;
+                        if (update.event === 'delete') {
+                            this._logger.debug('watcher', `Variable deleted: ${update.path}`);
+                            this._cacher.unset(update.path)
+                                .then(() => {
+                                    this._directory.notify(update.path, null);
+                                })
+                                .catch(error => {
+                                    this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): delete'));
+                                });
+                        } else if (update.event === 'update') {
+                            this._logger.debug('watcher', `Variable updated: ${update.path}`);
+                            if (!info) {
+                                this._addJsonFile(
+                                    this.watchedVarFiles,
+                                    varsFile,
+                                    update.mtime,
+                                    true,
+                                    null,
+                                    json => {
+                                        for (let key of Object.keys(json)) {
+                                            let varName = path.join(directory, key);
+                                            this._cacher.get(varName)
+                                                .then(result => {
+                                                    if (typeof result === 'undefined' || result === json[key])
+                                                        return;
 
-            this.readJson(path.join(updatesPath, file))
-                .then(json => {
-                    for (let path of json.paths) {
-                        this._logger.debug('watcher', `Path updated: ${path}`);
-                        this._cacher.unset(path)
-                            .then(
-                                () => {
-                                    this._directory.notify(path);
-                                },
-                                error => {
-                                    this._directory.notify(path);
-                                    this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): unset'));
-                                }
-                            );
+                                                    return this._cacher.set(varName, json[key]);
+                                                })
+                                                .then(() => {
+                                                    this._directory.notify(varName, json[key]);
+                                                })
+                                                .catch(error => {
+                                                    this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): update'));
+                                                });
+                                        }
+                                    },
+                                    error => {
+                                        this._logger.error(`Vars file ${varsFile} error: ${error.message}`);
+                                    }
+                                );
+                            }
+                        }
                     }
-                })
-                .catch(error => {
-                    this._logger.error(`Update read error: ${error.message}`);
-                });
+                },
+                error => {
+                    this._logger.error(`Update file ${filename} error: ${error.message}`);
+                }
+            );
         }
     }
 
@@ -237,18 +273,27 @@ class Watcher extends EventEmitter {
     /**
      * Delete expired updates
      */
-    onCleanUpdates() {
-        let updatesPath = path.join(this._directory.rootDir, 'updates');
-        let expiration = Date.now() - this.constructor.updatesLifetime;
-        for (let [ name, info ] of this.updates) {
+    onWatchedTimer() {
+        let expiration = Date.now() - this.constructor.watchedPeriod;
+        for (let [ filename, info ] of this.watchedVarFiles) {
             if (info.timestamp < expiration) {
-                this._logger.debug('watcher', `Update expired: ${name}`);
+                this._logger.debug('watcher', `Watched file expired: ${filename}`);
+                if (info.watch)
+                    info.watch.close();
+                this.watchedVarFiles.delete(filename);
+            }
+        }
+        for (let [ filename, info ] of this.watchedUpdates) {
+            if (info.timestamp < expiration) {
+                this._logger.debug('watcher', `Watched file expired: ${filename}`);
+                if (info.watch)
+                    info.watch.close();
                 try {
-                    fs.unlinkSync(path.join(updatesPath, name));
+                    fs.unlinkSync(filename);
                 } catch (error) {
                     // do nothing
                 }
-                this.updates.delete(name);
+                this.watchedUpdates.delete(filename);
             }
         }
     }
@@ -257,9 +302,9 @@ class Watcher extends EventEmitter {
      * Create and watch updates directory
      */
     _watchUpdates() {
-        let updates, updatesPath = path.join(this._directory.rootDir, 'updates');
+        let updates;
         try {
-            fs.accessSync(updatesPath, fs.constants.F_OK);
+            fs.accessSync(this._directory.updatesDir, fs.constants.F_OK);
             updates = true;
         } catch (error) {
             updates = false;
@@ -277,96 +322,154 @@ class Watcher extends EventEmitter {
             if (!updates)
                 return;
 
-            this._logger.debug('watcher', `Watching ${updatesPath}`);
-            this.updatesWatcher = fs.watch(updatesPath, this.onChangeUpdates.bind(this));
+            this._logger.debug('watcher', `Watching ${this._directory.updatesDir}`);
+            this.updatesWatcher = fs.watch(this._directory.updatesDir, this.onChangeUpdates.bind(this));
             if (!this.updatesWatcher)
                 throw new Error('Could not install updates watcher');
 
             this.updatesWatcher.on('error', this.onErrorUpdates.bind(this));
             this._logger.info('Watcher installed');
+            this.onChangeUpdates('init', null);
         } catch (error) {
             this._logger.error(new WError(error, 'Watcher._watchUpdates'));
         }
     }
 
-    _addJsonFile(filename, cb) {
-        return new Promise((resolve, reject) => {
-            let info = this.watchedFiles.get(filename);
-            if (!info) {
-                info = {
-                    timestamp: Date.now(),
-                    watch: null,
-                    process: [],
-                    success: [],
-                    error: [],
-                };
+    /**
+     * Start watching JSON file
+     * @param {Map} map                             Watchers map
+     * @param {string} filename                     Path to file
+     * @param {number} mtime                        Expected modification time of the file
+     * @param {boolean} permanent                   Callbacks are not removed when fired
+     * @param {function|null} processCallback       Process callback (called with { filename, json })
+     * @param {function|null} successCallback       Success callback (called with { filename, json })
+     * @param {function|null} errorCallback         Error callback (called with error)
+     */
+    _addJsonFile(map, filename, mtime, permanent, processCallback, successCallback, errorCallback) {
+        let info = map.get(filename);
+        if (!info) {
+            info = {
+                timestamp: Date.now(),
+                mtime: 0,
+                watch: null,
+                nextProcess: new Set(),
+                nextSuccess: new Set(),
+                nextError: new Set(),
+                permanentProcess: new Set(),
+                permanentSuccess: new Set(),
+                permanentError: new Set(),
+            };
 
-                this.watchedFiles.set(filename, info);
+            map.set(filename, info);
+        }
+
+        if (mtime)
+            info.mtime = mtime;
+
+        if (processCallback) {
+            if (permanent)
+                info.permanentProcess.add(processCallback);
+            else
+                info.nextProcess.add(processCallback);
+        }
+
+        if (successCallback) {
+            if (permanent)
+                info.permanentSuccess.add(successCallback);
+            else
+                info.nextSuccess.add(successCallback);
+        }
+
+        if (errorCallback) {
+            if (permanent)
+                info.permanentError.add(errorCallback);
+            else
+                info.nextError.add(errorCallback);
+        }
+
+        if (!info.watch) {
+            info.watch = fs.watch(filename, (eventType, name) => {
+                this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
+                this._processJsonFile(map, filename);
+            });
+            if (!info.watch) {
+                for (let cb of info.nextError)
+                    cb(new Error(`Could not install updates watcher for ${filename}`));
+                for (let cb of info.permanentError)
+                    cb(new Error(`Could not install updates watcher for ${filename}`));
+                map.delete(filename);
+                return;
             }
+            info.watch.on('error', error => {
+                this._logger.error(`JSON ${filename} error: ${error.message}`);
+            });
+        }
 
-            let exists;
-            try {
-                fs.accessSync(filename, fs.constants.F_OK);
-                exists = true;
-            } catch (error) {
-                exists = false;
-            }
-
-            if (exists) {
-                info.watch = fs.watch(filename, (eventType, name) => {
-                    this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
-                    this._processJsonFile(filename);
-                });
-                if (!info.watch)
-                    return reject(new Error('Could not install updates watcher'));
-                info.watch.on('error', error => {
-                    this._logger.error(`JSON ${filename} error: ${error.message}`);
-                });
-            }
-
-            if (cb)
-                info.process.push(cb);
-            info.success.push(resolve);
-            info.error.push(reject);
-
-            this._processJsonFile(filename);
-        });
+        this._processJsonFile(map, filename);
     }
 
-    _processJsonFile(filename) {
-        let info = this.watchedFiles.get(filename);
+    /**
+     * Process watched JSON file
+     * @param {Map} map                             Watchers map
+     * @param {string} filename                     Path to file
+     */
+    _processJsonFile(map, filename) {
+        let info = map.get(filename);
         if (!info)
             return;
 
+        info.timestamp = Date.now();
+
+        let exists;
+        try {
+            let stat = fs.statSync(filename);
+            if (info.mtime && stat.mtime < info.mtime)
+                return;
+            exists = true;
+        } catch (error) {
+            exists = false;
+        }
+
+
         let complete = (json, error) => {
             if (json) {
-                for (let cb of info.process)
+                for (let cb of info.nextProcess)
                     json = cb(json);
-                for (let cb of info.success)
+
+                for (let cb of info.permanentProcess)
+                    json = cb(json);
+
+                for (let cb of info.nextSuccess)
+                    cb(json);
+
+                for (let cb of info.permanentSuccess)
                     cb(json);
             } else {
-                for (let cb of info.error)
+                for (let cb of info.nextError)
+                    cb(error);
+
+                for (let cb of info.permanentError)
                     cb(error);
             }
 
-            if (info.watch)
-                info.watch.close();
+            info.nextProcess.clear();
+            info.nextSuccess.clear();
+            info.nextError.clear();
 
-            this.watchedFiles.delete(filename);
             return json;
         };
 
-        if (!info.process.length) {
-            if (!info.watch)
+        if (!info.nextProcess.size && !info.permanentProcess.size) {
+            if (!exists)
                 return complete({}, null);
 
             return this._filer.lockRead(filename)
                 .then(contents => {
-                    let again = this.watchedFiles.get(filename);
+                    let again = map.get(filename);
                     if (!again || again !== info)
                         return;
                     if (again.process.length)
-                        return this._processJsonFile(filename);
+                        return this._processJsonFile(map, filename);
 
                     let json;
                     try {
@@ -379,11 +482,11 @@ class Watcher extends EventEmitter {
                     complete(json, null);
                 })
                 .catch(error => {
-                    let again = this.watchedFiles.get(filename);
+                    let again = map.get(filename);
                     if (!again || again !== info)
                         return;
                     if (again.process.length)
-                        return this._processJsonFile(filename);
+                        return this._processJsonFile(map, filename);
 
                     complete(null, error);
                 });
@@ -392,7 +495,7 @@ class Watcher extends EventEmitter {
         return this._filer.lockUpdate(
                 filename,
                 contents => {
-                    let again = this.watchedFiles.get(filename);
+                    let again = map.get(filename);
                     if (!again || again !== info)
                         return Promise.resolve(contents);
 
@@ -400,7 +503,7 @@ class Watcher extends EventEmitter {
                     try {
                         json = JSON.parse(contents);
                     } catch (error) {
-                        if (info.watch) {
+                        if (exists) {
                             this._logger.debug('watcher', `Premature read of ${filename}`);
                             return Promise.resolve(contents);
                         } else {
@@ -409,12 +512,12 @@ class Watcher extends EventEmitter {
                     }
 
                     json = complete(json, null);
-                    return Promise.resolve(JSON.stringify(json, undefined, 4));
+                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                 },
-                { mode: this._directory.dirMode, uid: this._directory.user, gid: this._directory.group }
+                { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
             )
             .catch(error => {
-                let again = this.watchedFiles.get(filename);
+                let again = map.get(filename);
                 if (!again || again !== info)
                     return;
 

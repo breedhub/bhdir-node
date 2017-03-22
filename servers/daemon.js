@@ -168,7 +168,7 @@ class Daemon extends EventEmitter {
     /**
      * Parse protocol command
      * @param {Buffer} data                 Raw data
-     * @return {object}                      Returns parsed JSON
+     * @return {object}                     Returns parsed JSON
      */
     parse(data) {
         let json = JSON.parse(data.toString());

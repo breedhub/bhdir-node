@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const ini = require('ini');
+const crypto = require('crypto');
 const EventEmitter = require('events');
 const WError = require('verror').WError;
 
@@ -73,6 +74,7 @@ class Directory extends EventEmitter {
                 if (!this.rootDir)
                     throw new Error('No root parameter in directory section of bhdir.conf');
 
+                this.updatesDir = path.join(this.rootDir, 'updates');
                 this.dataDir = path.join(this.rootDir, 'data');
 
                 this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '770', 8);
@@ -178,56 +180,69 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     wait(filename, timeout) {
-        let info = this.waiting.get(filename);
-        if (!info) {
-            info = {
-                handlers: new Set(),
-            };
-            this.waiting.set(filename, info);
-        }
+        return this.get(filename)
+            .then(result => {
+                let info = this.waiting.get(filename);
+                if (info && info.value !== result) {
+                    this.notify(filename, result);
+                    info = null;
+                }
+                if (!info) {
+                    info = {
+                        value: result,
+                        handlers: new Set(),
+                    };
+                    this.waiting.set(filename, info);
+                }
 
-        return new Promise((resolve) => {
-            let cb = result => {
-                this._logger.debug('directory', `Wait on ${filename} timeout: ${result}`);
-                resolve(result);
-            };
-            info.handlers.add(cb);
-            if (timeout)
-                setTimeout(() => { cb(true); }, timeout);
-        });
+                return new Promise((resolve) => {
+                    let cb = result => {
+                        this._logger.debug('directory', `Wait on ${filename} timeout: ${result}`);
+                        resolve(result);
+                    };
+                    info.handlers.add(cb);
+                    if (timeout)
+                        setTimeout(() => { cb(true); }, timeout);
+                });
+            })
+            .catch(error => {
+                this._logger.error(new WError(error, 'Directory.wait()'));
+            });
     }
 
     /**
-     * Wait for variable change
+     * Signal variable change
+     * @param {string} event                        'update' or 'delete'
      * @param {string} filename                     Variable path
+     * @param {number} mtime                        Expected modification time
      * @return {Promise}
      */
-    touch(filename) {
-        let directory = path.join(this.rootDir, 'updates');
+    touch(event, filename, mtime) {
+        let hash = crypto.createHash('sha256').update(filename).digest('hex');
         let json = {
-            paths: [ filename ],
+            vars: [
+                {
+                    event: event,
+                    path: filename,
+                    mtime: mtime,
+                }
+            ],
         };
-
-        return this._filer.createDirectory(
-                directory,
-                { mode: this.dirMode, uid: this.user, gid: this.group }
-            )
-            .then(() => {
-                return this._filer.lockWrite(
-                    path.join(directory, Date.now() + '.' + this._watcher.sessionId + '.json'),
-                    JSON.stringify(json) + '\n',
-                    { mode: this.fileMode, uid: this.user, gid: this.group }
-                );
-            });
+        return this._filer.lockWrite(
+            path.join(this.updatesDir, hash + '.json'),
+            JSON.stringify(json, undefined, 4),
+            { mode: this.fileMode, uid: this.user, gid: this.group }
+        );
     }
 
     /**
      * Notify about variable change
      * @param {string} filename                     Variable path
+     * @param {*} value                             Variable value
      */
-    notify(filename) {
+    notify(filename, value) {
         let waiting = this.waiting.get(filename);
-        if (!waiting)
+        if (!waiting || waiting.value === value)
             return;
 
         for (let cb of waiting.handlers)
@@ -252,19 +267,16 @@ class Directory extends EventEmitter {
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this.dataDir, parts.join('/'));
-        let notified = false;
 
         return this.get(filename)
             .then(result => {
                 if (result === value)
                     return;
 
+                let varsFile = path.join(directory, '.vars.json');
                 return this._cacher.set(filename, value)
-                    .then(reply => {
-                        if (typeof reply !== 'undefined') {
-                            this.notify(filename);
-                            notified = true;
-                        }
+                    .then(() => {
+                        this.notify(filename, value);
 
                         return this._filer.createDirectory(
                             directory,
@@ -273,7 +285,7 @@ class Directory extends EventEmitter {
                     })
                     .then(() => {
                         return this._watcher.updateJson(
-                            path.join(directory, '.vars.json'),
+                            varFile,
                             json => {
                                 json[name] = value;
                                 return json;
@@ -281,10 +293,14 @@ class Directory extends EventEmitter {
                         );
                     })
                     .then(() => {
-                        if (!notified)
-                            this.notify(filename);
-
-                        return this.touch(filename);
+                        let mtime = 0;
+                        try {
+                            let stats = fs.statSync(varsFile);
+                            mtime = stats.mtime;
+                        } catch (error) {
+                            // do nothing
+                        }
+                        return this.touch('update', filename, mtime);
                     });
             });
     }
@@ -329,14 +345,10 @@ class Directory extends EventEmitter {
         let parts = filename.split('/');
         let name = parts.pop();
         let directory = path.join(this.dataDir, parts.join('/'));
-        let notified = false;
 
         return this._cacher.unset(filename)
-            .then(reply => {
-                if (typeof reply !== 'undefined') {
-                    this.notify(filename);
-                    notified = true;
-                }
+            .then(() => {
+                this.notify(filename, null);
 
                 return this._filer.createDirectory(
                     directory,
@@ -353,10 +365,7 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
-                if (!notified)
-                    this.notify(filename);
-
-                return this.touch(filename);
+                return this.touch('delete', filename, 0);
             });
     }
 
