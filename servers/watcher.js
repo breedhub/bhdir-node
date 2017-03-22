@@ -133,7 +133,7 @@ class Watcher extends EventEmitter {
         let parts = filename.split('/');
         parts.pop();
         let directory = parts.join('/');
-        let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
+        let varsFile = path.join(directory, '.vars.json');
 
         return new Promise((resolve, reject) => {
             this._addJsonFile(this.watchedVarFiles, varsFile, 0, false, null, resolve, reject);
@@ -150,7 +150,7 @@ class Watcher extends EventEmitter {
         let parts = filename.split('/');
         parts.pop();
         let directory = parts.join('/');
-        let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
+        let varsFile = path.join(directory, '.vars.json');
 
         return new Promise((resolve, reject) => {
             this._addJsonFile(this.watchedVarFiles, varsFile, 0, false, cb, resolve, reject);
@@ -190,8 +190,7 @@ class Watcher extends EventEmitter {
             return;
         }
 
-        for (let file of files || []) {
-            let filename = path.join(this._directory.updatesDir, file);
+        for (let filename of files || []) {
             if (this.watchedUpdates.has(filename))
                 continue;
 
@@ -388,24 +387,47 @@ class Watcher extends EventEmitter {
         }
 
         if (!info.watch) {
-            info.watch = fs.watch(filename, (eventType, name) => {
-                this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
-                this._processJsonFile(map, filename);
-            });
-            if (!info.watch) {
-                for (let cb of info.nextError)
-                    cb(new Error(`Could not install updates watcher for ${filename}`));
-                for (let cb of info.permanentError)
-                    cb(new Error(`Could not install updates watcher for ${filename}`));
-                map.delete(filename);
-                return;
+            let exists;
+            try {
+                let stat = fs.statSync(filename);
+                if (info.mtime && stat.mtime < info.mtime)
+                    return;
+                exists = true;
+            } catch (error) {
+                exists = false;
             }
-            info.watch.on('error', error => {
-                this._logger.error(`JSON ${filename} error: ${error.message}`);
-            });
+            if (exists)
+                this._watchJsonFile(map, filename);
         }
 
         this._processJsonFile(map, filename);
+    }
+
+    /**
+     * Install watcher for JSON file
+     * @param {Map} map                             Watchers map
+     * @param {string} filename                     Path to file
+     */
+    _watchJsonFile(map, filename) {
+        let info = map.get(filename);
+        if (!info || info.watch)
+            return;
+
+        info.watch = fs.watch(filename, (eventType, name) => {
+            this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
+            this._processJsonFile(map, filename);
+        });
+        if (!info.watch) {
+            for (let cb of info.nextError)
+                cb(new Error(`Could not install updates watcher for ${filename}`));
+            for (let cb of info.permanentError)
+                cb(new Error(`Could not install updates watcher for ${filename}`));
+            map.delete(filename);
+            return;
+        }
+        info.watch.on('error', error => {
+            this._logger.error(`JSON ${filename} error: ${error.message}`);
+        });
     }
 
     /**
@@ -429,7 +451,8 @@ class Watcher extends EventEmitter {
         } catch (error) {
             exists = false;
         }
-
+        if (exists && !info.watch)
+            this._watchJsonFile(map, filename);
 
         let complete = (json, error) => {
             if (json) {

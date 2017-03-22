@@ -153,6 +153,18 @@ class Directory extends EventEmitter {
                     this.rootDir,
                     { mode: this.dirMode, uid: this.user, gid: this.group }
                 )
+            })
+            .then(() => {
+                return this._filer.createDirectory(
+                    this.dataDir,
+                    { mode: this.dirMode, uid: this.user, gid: this.group }
+                )
+            })
+            .then(() => {
+                return this._filer.createDirectory(
+                    this.updatesDir,
+                    { mode: this.dirMode, uid: this.user, gid: this.group }
+                )
             });
     }
 
@@ -230,7 +242,7 @@ class Directory extends EventEmitter {
         };
         return this._filer.lockWrite(
             path.join(this.updatesDir, hash + '.json'),
-            JSON.stringify(json, undefined, 4),
+            JSON.stringify(json, undefined, 4) + '\n',
             { mode: this.fileMode, uid: this.user, gid: this.group }
         );
     }
@@ -285,7 +297,7 @@ class Directory extends EventEmitter {
                     })
                     .then(() => {
                         return this._watcher.updateJson(
-                            varFile,
+                            varsFile,
                             json => {
                                 json[name] = value;
                                 return json;
