@@ -190,7 +190,8 @@ class Watcher extends EventEmitter {
             return;
         }
 
-        for (let filename of files) {
+        for (let file of files) {
+            let filename = path.join(this._directory.updatesDir, file);
             if (this.watchedUpdates.has(filename))
                 continue;
 
@@ -203,55 +204,61 @@ class Watcher extends EventEmitter {
                 json => {
                     for (let update of json.vars || []) {
                         let parts = update.path.split('/');
-                        parts.pop();
+                        let name = parts.pop();
                         let directory = parts.join('/');
                         let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
                         let info = this.watchedVarFiles.get(varsFile);
                         if (info)
                             info.mtime = update.mtime;
 
-                        if (update.event === 'delete') {
-                            this._logger.debug('watcher', `Variable deleted: ${update.path}`);
-                            this._cacher.unset(update.path)
-                                .then(() => {
-                                    this._directory.notify(update.path, null);
-                                })
-                                .catch(error => {
-                                    this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): delete'));
-                                });
-                        } else if (update.event === 'update') {
-                            this._logger.debug('watcher', `Variable updated: ${update.path}`);
-                            if (!info) {
-                                this._addJsonFile(
-                                    this.watchedVarFiles,
-                                    varsFile,
-                                    update.mtime,
-                                    true,
-                                    null,
-                                    json => {
-                                        for (let key of Object.keys(json)) {
-                                            let varName = path.join(directory, key);
-                                            this._cacher.get(varName)
-                                                .then(result => {
-                                                    if (typeof result === 'undefined' || result === json[key])
-                                                        return;
+                        ((update, name, directory, varsFile, info) => {
+                            if (update.event === 'delete') {
+                                this._logger.debug('watcher', `Variable deleted: ${update.path}`);
+                                this._cacher.unset(update.path)
+                                    .then(() => {
+                                        this._directory.notify(update.path, null);
+                                    })
+                                    .catch(error => {
+                                        this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): delete'));
+                                    });
+                            } else if (update.event === 'update') {
+                                this._logger.debug('watcher', `Variable updated: ${update.path}`);
+                                if (!info) {
+                                    this._addJsonFile(
+                                        this.watchedVarFiles,
+                                        varsFile,
+                                        update.mtime,
+                                        true,
+                                        null,
+                                        json => {
+                                            for (let key of Object.keys(json)) {
+                                                let varName = path.join(directory || '/', key);
+                                                ((varName, key) => {
+                                                    this._cacher.get(varName)
+                                                        .then(result => {
+                                                            if (typeof result === 'undefined' || result === json[key])
+                                                                return;
 
-                                                    return this._cacher.set(varName, json[key]);
-                                                })
-                                                .then(() => {
-                                                    this._directory.notify(varName, json[key]);
-                                                })
-                                                .catch(error => {
-                                                    this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): update'));
-                                                });
+                                                            return this._cacher.set(varName, json[key]);
+                                                        })
+                                                        .then(() => {
+                                                            this._directory.notify(varName, json[key]);
+                                                        })
+                                                        .catch(error => {
+                                                            this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): update'));
+                                                        });
+                                                })(varName, key);
+                                            }
+                                        },
+                                        error => {
+                                            this._logger.error(`Vars file ${varsFile} error: ${error.message}`);
                                         }
-                                    },
-                                    error => {
-                                        this._logger.error(`Vars file ${varsFile} error: ${error.message}`);
-                                    }
-                                );
+                                    );
+                                } else {
+                                    this._processJsonFile(this.watchedVarFiles, varsFile);
+                                }
                             }
-                        }
+                        })(update, name, directory, varsFile, info);
                     }
                 },
                 error => {
@@ -345,6 +352,8 @@ class Watcher extends EventEmitter {
      * @param {function|null} errorCallback         Error callback (called with error)
      */
     _addJsonFile(map, filename, mtime, permanent, processCallback, successCallback, errorCallback) {
+        this._logger.debug('watcher', `Adding ${filename}`);
+
         let info = map.get(filename);
         if (!info) {
             info = {
@@ -409,6 +418,8 @@ class Watcher extends EventEmitter {
      * @param {string} filename                     Path to file
      */
     _watchJsonFile(map, filename) {
+        this._logger.debug('watcher', `Watching ${filename}`);
+
         let info = map.get(filename);
         if (!info || info.watch)
             return;
@@ -436,6 +447,8 @@ class Watcher extends EventEmitter {
      * @param {string} filename                     Path to file
      */
     _processJsonFile(map, filename) {
+        this._logger.debug('watcher', `Processing ${filename}`);
+
         let info = map.get(filename);
         if (!info)
             return;
