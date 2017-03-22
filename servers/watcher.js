@@ -54,7 +54,7 @@ class Watcher extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer', 'cacher', 'util' ];
+        return ['app', 'config', 'logger', 'filer', 'cacher', 'util'];
     }
 
     /**
@@ -94,18 +94,18 @@ class Watcher extends EventEmitter {
             return Promise.reject(new Error(`Server ${name} was not properly initialized`));
 
         return Array.from(this._app.get('modules')).reduce(
-                (prev, [ curName, curModule ]) => {
-                    return prev.then(() => {
-                        if (!curModule.register)
-                            return;
+            (prev, [curName, curModule]) => {
+                return prev.then(() => {
+                    if (!curModule.register)
+                        return;
 
-                        let result = curModule.register(name);
-                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
-                            throw new Error(`Module '${curName}' register() did not return a Promise`);
-                        return result;
-                    });
-                },
-                Promise.resolve()
+                    let result = curModule.register(name);
+                    if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
+                        throw new Error(`Module '${curName}' register() did not return a Promise`);
+                    return result;
+                });
+            },
+            Promise.resolve()
             )
             .then(() => {
                 this._logger.debug('watcher', 'Starting the server');
@@ -127,33 +127,43 @@ class Watcher extends EventEmitter {
     /**
      * Try reading JSON file until its written if it exists
      * @param {string} filename                         Name of the file
+     * @param {string} directory                        Directory of the variable
      * @return {Promise}
      */
-    readJson(filename) {
-        let parts = filename.split('/');
-        parts.pop();
-        let directory = parts.join('/');
-        let varsFile = path.join(directory, '.vars.json');
-
+    readJson(filename, directory) {
         return new Promise((resolve, reject) => {
-            this._addJsonFile(this.watchedVarFiles, varsFile, 0, false, null, resolve, reject);
+            this._addJsonFile(
+                this.watchedVarFiles,
+                filename,
+                directory || '/',
+                0,
+                false,
+                null,
+                (directory, json) => resolve(json),
+                (directory, error) => reject(error)
+            );
         });
     }
 
     /**
      * Try updating JSON file after it has been written if it exists, otherwise create
      * @param {string} filename                         Name of the file
+     * @param {string} directory                        Directory of the variable
      * @param {Function} cb                             Update callback
      * @return {Promise}
      */
-    updateJson(filename, cb) {
-        let parts = filename.split('/');
-        parts.pop();
-        let directory = parts.join('/');
-        let varsFile = path.join(directory, '.vars.json');
-
+    updateJson(filename, directory, cb) {
         return new Promise((resolve, reject) => {
-            this._addJsonFile(this.watchedVarFiles, varsFile, 0, false, cb, resolve, reject);
+            this._addJsonFile(
+                this.watchedVarFiles,
+                filename,
+                directory || '/',
+                0,
+                false,
+                cb,
+                (directory, json) => resolve(json),
+                (directory, error) => reject(error)
+            );
         });
     }
 
@@ -198,20 +208,45 @@ class Watcher extends EventEmitter {
             this._addJsonFile(
                 this.watchedUpdates,
                 filename,
+                null,
                 0,
                 true,
                 null,
-                json => {
+                (directory, json) => {
                     for (let update of json.vars || []) {
-                        let parts = update.path.split('/');
-                        let name = parts.pop();
-                        let directory = parts.join('/');
+                        let directory = path.dirname(update.path);
                         let varsFile = path.join(this._directory.dataDir, directory, '.vars.json');
-                        let info = this.watchedVarFiles.get(varsFile);
-                        if (info)
-                            info.mtime = update.mtime;
 
-                        ((update, name, directory, varsFile, info) => {
+                        if (!this.onVarFileUpdate) {
+                            this.onVarFileUpdate = (function (directory, json) {
+                                for (let key of Object.keys(json)) {
+                                    let varName = path.join(directory, key);
+                                    ((varName, value) => {
+                                        this._cacher.get(varName)
+                                            .then(result => {
+                                                if (typeof result === 'undefined' || result === value)
+                                                    return;
+
+                                                return this._cacher.set(varName, value);
+                                            })
+                                            .then(() => {
+                                                this._directory.notify(varName, value);
+                                            })
+                                            .catch(error => {
+                                                this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): update'));
+                                            });
+                                    })(varName, json[key]);
+                                }
+                            }).bind(this);
+                        }
+
+                        if (!this.onVarFileError) {
+                            this.onVarFileError = (function (directory, error) {
+                                this._logger.error(`Vars file of ${directory} error: ${error.message}`);
+                            }).bind(this);
+                        }
+
+                        ((update, directory, varsFile) => {
                             if (update.event === 'delete') {
                                 this._logger.debug('watcher', `Variable deleted: ${update.path}`);
                                 this._cacher.unset(update.path)
@@ -223,46 +258,22 @@ class Watcher extends EventEmitter {
                                     });
                             } else if (update.event === 'update') {
                                 this._logger.debug('watcher', `Variable updated: ${update.path}`);
-                                if (!info) {
-                                    this._addJsonFile(
-                                        this.watchedVarFiles,
-                                        varsFile,
-                                        update.mtime,
-                                        true,
-                                        null,
-                                        json => {
-                                            for (let key of Object.keys(json)) {
-                                                let varName = path.join(directory || '/', key);
-                                                ((varName, value) => {
-                                                    this._cacher.get(varName)
-                                                        .then(result => {
-                                                            if (typeof result === 'undefined' || result === value)
-                                                                return;
-
-                                                            return this._cacher.set(varName, value);
-                                                        })
-                                                        .then(() => {
-                                                            this._directory.notify(varName, value);
-                                                        })
-                                                        .catch(error => {
-                                                            this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): update'));
-                                                        });
-                                                })(varName, json[key]);
-                                            }
-                                        },
-                                        error => {
-                                            this._logger.error(`Vars file ${varsFile} error: ${error.message}`);
-                                        }
-                                    );
-                                } else if (eventType !== 'init') {
-                                    this._processJsonFile(this.watchedVarFiles, varsFile);
-                                }
+                                this._addJsonFile(
+                                    this.watchedVarFiles,
+                                    varsFile,
+                                    directory || '/',
+                                    update.mtime,
+                                    true,
+                                    null,
+                                    this.onVarFileUpdate,
+                                    this.onVarFileError
+                                );
                             }
-                        })(update, name, directory, varsFile, info);
+                        })(update, directory, varsFile);
                     }
                 },
-                error => {
-                    this._logger.error(`Update file ${filename} error: ${error.message}`);
+                (directory, error) => {
+                    this._logger.error(`Update file ${directory} error: ${error.message}`);
                 }
             );
         }
@@ -345,19 +356,21 @@ class Watcher extends EventEmitter {
      * Start watching JSON file
      * @param {Map} map                             Watchers map
      * @param {string} filename                     Path to file
+     * @param {string} directory                    Directory of the variable
      * @param {number} mtime                        Expected modification time of the file
      * @param {boolean} permanent                   Callbacks are not removed when fired
      * @param {function|null} processCallback       Process callback (called with { filename, json })
      * @param {function|null} successCallback       Success callback (called with { filename, json })
      * @param {function|null} errorCallback         Error callback (called with error)
      */
-    _addJsonFile(map, filename, mtime, permanent, processCallback, successCallback, errorCallback) {
+    _addJsonFile(map, filename, directory, mtime, permanent, processCallback, successCallback, errorCallback) {
         this._logger.debug('watcher', `Adding ${filename}`);
 
         let info = map.get(filename);
         if (!info) {
             info = {
-                timestamp: Date.now(),
+                timestamp: null,
+                directory: null,
                 mtime: 0,
                 watch: null,
                 nextProcess: new Set(),
@@ -371,6 +384,9 @@ class Watcher extends EventEmitter {
             map.set(filename, info);
         }
 
+        info.timestamp = Date.now();
+        if (directory)
+            info.directory = directory;
         if (mtime)
             info.mtime = mtime;
 
@@ -395,20 +411,6 @@ class Watcher extends EventEmitter {
                 info.nextError.add(errorCallback);
         }
 
-        if (!info.watch) {
-            let exists;
-            try {
-                let stat = fs.statSync(filename);
-                if (info.mtime && Math.floor(stat.mtime.getTime() / 1000) < info.mtime)
-                    return;
-                exists = true;
-            } catch (error) {
-                exists = false;
-            }
-            if (exists)
-                this._watchJsonFile(map, filename);
-        }
-
         this._processJsonFile(map, filename);
     }
 
@@ -430,9 +432,9 @@ class Watcher extends EventEmitter {
         });
         if (!info.watch) {
             for (let cb of info.nextError)
-                cb(new Error(`Could not install updates watcher for ${filename}`));
+                cb(info.directory, new Error(`Could not install updates watcher for ${filename}`));
             for (let cb of info.permanentError)
-                cb(new Error(`Could not install updates watcher for ${filename}`));
+                cb(info.directory, new Error(`Could not install updates watcher for ${filename}`));
             map.delete(filename);
             return;
         }
@@ -464,28 +466,32 @@ class Watcher extends EventEmitter {
         } catch (error) {
             exists = false;
         }
-        if (exists && !info.watch)
+        if (exists && !info.watch) {
             this._watchJsonFile(map, filename);
+            if (!map.has(filename))
+                return;
+        }
 
         let complete = (json, error) => {
+            this._logger.debug('watcher', `Completed ${filename}`);
             if (json) {
                 for (let cb of info.nextProcess)
-                    json = cb(json);
+                    json = cb(info.directory, json);
 
                 for (let cb of info.permanentProcess)
-                    json = cb(json);
+                    json = cb(info.directory, json);
 
                 for (let cb of info.nextSuccess)
-                    cb(json);
+                    cb(info.directory, json);
 
                 for (let cb of info.permanentSuccess)
-                    cb(json);
+                    cb(info.directory, json);
             } else {
                 for (let cb of info.nextError)
-                    cb(error);
+                    cb(info.directory, error);
 
                 for (let cb of info.permanentError)
-                    cb(error);
+                    cb(info.directory, error);
             }
 
             info.nextProcess.clear();

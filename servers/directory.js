@@ -241,7 +241,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     touch(event, filename, mtime) {
-        let hash = crypto.createHash('md5').update(filename).digest('hex');
+        let hash = crypto.createHash('md5').update(path.dirname(filename)).digest('hex');
         let json = {
             vars: [
                 {
@@ -287,9 +287,8 @@ class Directory extends EventEmitter {
             return Promise.resolve();
         }
 
-        let parts = filename.split('/');
-        let name = parts.pop();
-        let directory = path.join(this.dataDir, parts.join('/'));
+        let name = path.basename(filename);
+        let directory = path.join(this.dataDir, path.dirname(filename));
 
         return this.get(filename)
             .then(result => {
@@ -309,7 +308,8 @@ class Directory extends EventEmitter {
                     .then(() => {
                         return this._watcher.updateJson(
                             varsFile,
-                            json => {
+                            path.dirname(filename),
+                            (directory, json) => {
                                 json[name] = value;
                                 return json;
                             }
@@ -336,16 +336,15 @@ class Directory extends EventEmitter {
     get(filename) {
         this._logger.debug('directory', `Getting ${filename}`);
 
-        let parts = filename.split('/');
-        let name = parts.pop();
-        let directory = path.join(this.dataDir, parts.join('/'));
+        let name = path.basename(filename);
+        let directory = path.join(this.dataDir, path.dirname(filename));
 
         return this._cacher.get(filename)
             .then(result => {
                 if (typeof result !== 'undefined')
                     return result;
 
-                return this._watcher.readJson(path.join(directory, '.vars.json'))
+                return this._watcher.readJson(path.join(directory, '.vars.json'), path.dirname(filename))
                     .then(json => {
                         let result = typeof json[name] === 'undefined' ? null : json[name];
 
@@ -365,9 +364,8 @@ class Directory extends EventEmitter {
     unset(filename) {
         this._logger.debug('directory', `Unsetting ${filename}`);
 
-        let parts = filename.split('/');
-        let name = parts.pop();
-        let directory = path.join(this.dataDir, parts.join('/'));
+        let name = path.basename(filename);
+        let directory = path.join(this.dataDir, path.dirname(filename));
 
         return this._cacher.unset(filename)
             .then(() => {
@@ -381,7 +379,8 @@ class Directory extends EventEmitter {
             .then(() => {
                 return this._watcher.updateJson(
                     path.join(directory, '.vars.json'),
-                    json => {
+                    path.dirname(filename),
+                    (directory, json) => {
                         delete json[name];
                         return json;
                     }
