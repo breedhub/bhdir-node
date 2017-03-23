@@ -251,6 +251,7 @@ class Directory extends EventEmitter {
                 }
             ],
         };
+        this._logger.debug('directory', `Touching ${filename}`);
         return this._filer.lockWrite(
                 path.join(this.updatesDir, hash + '.json'),
                 JSON.stringify(json, undefined, 4) + '\n',
@@ -295,6 +296,7 @@ class Directory extends EventEmitter {
                 if (result === value)
                     return;
 
+                this._logger.debug('directory', `Setting ${filename}`);
                 let varsFile = path.join(directory, '.vars.json');
                 return this._cacher.set(filename, value)
                     .then(() => {
@@ -344,6 +346,7 @@ class Directory extends EventEmitter {
                 if (typeof result !== 'undefined')
                     return result;
 
+                this._logger.debug('directory', `Reading ${filename}`);
                 return this._watcher.readJson(path.join(directory, '.vars.json'), path.dirname(filename))
                     .then(json => {
                         let result = typeof json[name] === 'undefined' ? null : json[name];
@@ -367,6 +370,7 @@ class Directory extends EventEmitter {
         let name = path.basename(filename);
         let directory = path.join(this.dataDir, path.dirname(filename));
 
+        this._logger.debug('directory', `Unsetting ${filename}`);
         return this._cacher.unset(filename)
             .then(() => {
                 this.notify(filename, null);

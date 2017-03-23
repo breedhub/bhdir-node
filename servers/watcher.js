@@ -224,9 +224,15 @@ class Watcher extends EventEmitter {
                                     ((varName, value) => {
                                         this._cacher.get(varName)
                                             .then(result => {
-                                                if (typeof result === 'undefined' || result === value)
+                                                if (typeof result === 'undefined') {
+                                                    this._logger.debug('watcher', `Variable ${varName} is not cached`);
                                                     return;
+                                                } else if (result === value) {
+                                                    this._logger.debug('watcher', `Variable ${varName} has the same value`);
+                                                    return;
+                                                }
 
+                                                this._logger.debug('watcher', `Updating cache for variable ${varName}`);
                                                 return this._cacher.set(varName, value);
                                             })
                                             .then(() => {
@@ -248,7 +254,7 @@ class Watcher extends EventEmitter {
 
                         ((update, directory, varsFile) => {
                             if (update.event === 'delete') {
-                                this._logger.debug('watcher', `Variable deleted: ${update.path}`);
+                                this._logger.debug('watcher', `Delete event for variable ${update.path}`);
                                 this._cacher.unset(update.path)
                                     .then(() => {
                                         this._directory.notify(update.path, null);
@@ -257,7 +263,7 @@ class Watcher extends EventEmitter {
                                         this._logger.error(new WError(error, 'Watcher.onChangeUpdates(): delete'));
                                     });
                             } else if (update.event === 'update') {
-                                this._logger.debug('watcher', `Variable updated: ${update.path}`);
+                                this._logger.debug('watcher', `Update event for variable ${update.path}`);
                                 this._addJsonFile(
                                     this.watchedVarFiles,
                                     varsFile,
@@ -460,8 +466,13 @@ class Watcher extends EventEmitter {
         let exists;
         try {
             let stat = fs.statSync(filename);
-            if (info.mtime && Math.floor(stat.mtime.getTime() / 1000) < info.mtime)
-                return;
+            if (info.mtime) {
+                let delta = info.mtime - Math.floor(stat.mtime.getTime() / 1000);
+                if (delta > 0) {
+                    this._logger.debug('watcher', `Not time for ${filename}: ${delta} sec left`);
+                    return;
+                }
+            }
             exists = true;
         } catch (error) {
             exists = false;
