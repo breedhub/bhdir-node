@@ -89,10 +89,27 @@ class Directory extends EventEmitter {
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
                 let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
+                let updateConf = false;
+                if ((bhdirConfig.daemon && bhdirConfig.daemon.log_level) !== 'debug') {
+                    if (!bhdirConfig.daemon)
+                        bhdirConfig.daemon = {};
+                    bhdirConfig.daemon.log_level = 'debug';
+                    updateConf = true;
+                }
                 if (user === '999' || group === '999') { // TODO: Remove this
+                    if (!bhdirConfig.directory)
+                        bhdirConfig.directory = {};
                     user = bhdirConfig.directory.user = 'rslsync';
                     group = bhdirConfig.directory.group = 'rslsync';
+                    updateConf = true;
+                }
+
+                if (updateConf) {
                     fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+                    return this._app.error('Settings updated - restarting\n')
+                        .then(() => {
+                            process.exit(1);
+                        });
                 }
 
                 return Promise.all([
