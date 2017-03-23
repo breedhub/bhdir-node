@@ -29,6 +29,7 @@ class Resilio extends EventEmitter {
         this.logInode = null;
         this.logStart = 0;
         this.logEnd = 0;
+        this.log = new Buffer(0);
 
         this._name = null;
         this._app = app;
@@ -99,6 +100,13 @@ class Resilio extends EventEmitter {
 
                 this.dirWatcher.on('error', this.onErrorDir.bind(this));
 
+                try {
+                    let stats = fs.statSync(this._directory.syncLog);
+                    this.logStart = this.logEnd = stats.size;
+                } catch (error) {
+                    // no nothing
+                }
+
                 this.onChangeDir('init', null);
             });
     }
@@ -125,9 +133,10 @@ class Resilio extends EventEmitter {
             }
         }
 
-        if (stats) {
+        if (stats && !this.logWatcher) {
+            if (this.logInode)
+                this.logStart = this.logEnd = 0;
             this.logInode = stats.ino;
-            this.logStart = this.logEnd = stats.size;
 
             this._logger.debug('resilio', `Watching ${this._directory.syncLog}`);
             this.logWatcher = fs.watch(this._directory.syncLog, this.onChangeLog.bind(this));
@@ -158,8 +167,8 @@ class Resilio extends EventEmitter {
      * @param {string|null} filename                    Name of the file
      */
     onChangeLog(eventType, filename) {
-        this._logger.debug('resilio', `Resilio sync log event: ${eventType}, ${filename}`);
-        this.parseLog();
+//        this._logger.debug('resilio', `Resilio sync log event: ${eventType}, ${filename}`);
+        this.loadLog();
     }
 
     /**
@@ -171,47 +180,49 @@ class Resilio extends EventEmitter {
     }
 
     /**
-     * Parse sync log
+     * Load sync log
      */
-    parseLog() {
-        if (this._checkingLog) {
-            this._recheckLog = true;
+    loadLog() {
+        if (this._loadingLog) {
+            this._reloadLog = true;
             return;
         }
 
-        this._checkingLog = true;
-        this._recheckLog = false;
+        this._loadingLog = true;
+        this._reloadLog = false;
 
         let stats;
         try {
             stats = fs.statSync(this._directory.syncLog);
         } catch (error) {
             this._logger.debug('resilio', `Sync log disappeared`);
-            this._checkingLog = false;
+            this._loadingLog = false;
             return;
         }
 
         if (stats.size < this.logEnd) {
-            this._logger.debug('resilio', `Sync log truncated to ${stats.size}`);
+//            this._logger.debug('resilio', `Sync log truncated to ${stats.size}`);
             this.logStart = 0;
             this.logEnd = stats.size;
         } else if (stats.size > this.logEnd) {
-            this._logger.debug('resilio', `Sync log expanded by ${stats.size - this.logEnd}`);
+//            this._logger.debug('resilio', `Sync log expanded by ${stats.size - this.logEnd}`);
             this.logStart = this.logEnd;
             this.logEnd = stats.size;
         } else {
-            this._checkingLog = false;
+            this._loadingLog = false;
             return;
         }
 
         let exit = error => {
             if (error)
-                this._logger.error(`Sync log error: ${error.message}`);
+                this._logger.error(`Sync log load error: ${error.message}`);
 
-            this._checkingLog = false;
-            if (this._recheckLog) {
-                this._recheckLog = false;
-                this.parseLog();
+            this.parseLog();
+
+            this._loadingLog = false;
+            if (this._reloadLog) {
+                this._reloadLog = false;
+                this.loadLog();
             }
         };
 
@@ -238,35 +249,118 @@ class Resilio extends EventEmitter {
 
                 if (error)
                     return exit(error);
-                if (bytesRead !== buffer.length)
+                if (bytesRead !== buffer.length) {
+                    this.logEnd = this.logStart + bytesRead;
                     this._logger.error(`Only ${bytesRead} out of ${buffer.length} has been read from sync log`);
-
-                let str = buffer.toString('utf8');
-                for (let i = 0; i < str.length; i++) {
-                    if (str[str.length - 1 - i] === '\n') {
-                        let sub = new Buffer(str.substring(str.length - 1 - i, str.length));
-                        this.logEnd -= sub.length;
-                        str = str.substring(0, str.length - 1 - i);
-                        break;
-                    }
                 }
 
-                let files = new Set();
-                let re = /^\[.+?\] Finished downloading file "(.+)"$/;
-                for (let line of str.trim().split('\n')) {
-                    line = line.trim();
-                    if (!line.length)
-                        continue;
-                    let result = re.exec(line);
-                    if (result && result[1].startsWith(this._directory.rootDir)) {
-                        this._logger.info(`File updated: ${result[1]}`);
-                        files.add(result[1]);
-                    }
-                }
+                this.log = Buffer.concat([ this.log, buffer.slice(0, bytesRead) ]);
 
                 exit();
             }
         );
+    }
+
+    /**
+     * Parse sync log
+     */
+    parseLog() {
+        if (this._checkingLog) {
+            this._recheckLog = true;
+            return;
+        }
+
+        this._checkingLog = true;
+        this._recheckLog = false;
+
+        let exit = error => {
+            if (error)
+                this._logger.error(`Sync log parse error: ${error.message}`);
+
+            this._checkingLog = false;
+            if (this._recheckLog) {
+                this._recheckLog = false;
+                this.parseLog();
+            }
+        };
+
+        if (!this.log.length)
+            exit();
+
+        let str = this.log.toString('utf8');
+        this.log = new Buffer(0);
+
+        let files = [];
+        let re = /^\[.+?\] Finished downloading file "(.+)"$/;
+        for (let line of str.trim().split('\n')) {
+            line = line.trim();
+            if (!line.length)
+                continue;
+            let result = re.exec(line);
+            if (result && files.indexOf(result[1]) === -1 &&
+                result[1].startsWith(this._directory.dataDir) && result[1].endsWith('.vars.json'))
+            {
+                this._logger.info(`File updated: ${result[1]}`);
+                files.push(result[1]);
+            }
+        }
+
+        let promises = [];
+        for (let file of files)
+            promises.push(this._filer.lockRead(file));
+
+        if (!promises.length)
+            exit();
+
+        Promise.all(promises)
+            .then(result => {
+                promises = [];
+                for (let i = 0; i < result.length; i++ ) {
+                    let json;
+                    try {
+                        json = JSON.parse(result[i]);
+                    } catch (error) {
+                        continue;
+                    }
+                    let directory = path.dirname(files[i].substring(this._directory.dataDir.length));
+                    for (let key of Object.keys(json)) {
+                        let varName = path.join(directory, key);
+                        ((varName, value) => {
+                            promises.push(
+                                this._cacher.get(varName)
+                                    .then(result => {
+                                        if (typeof result === 'undefined') {
+                                            this._logger.debug('resilio', `Variable ${varName} is not cached`);
+                                            return;
+                                        } else if (result === value) {
+                                            this._logger.debug('resilio', `Variable ${varName} has the same value`);
+                                            return;
+                                        }
+
+                                        this._logger.info(`Variable ${varName} has changed`);
+                                        return this._cacher.set(varName, value);
+                                    })
+                                    .then(() => {
+                                        this._directory.notify(varName, value);
+                                    })
+                            );
+                        })(varName, json[key]);
+                    }
+                }
+
+                if (!promises.length)
+                    return;
+
+                return Promise.all(promises);
+            })
+            .then(
+                () => {
+                    exit();
+                },
+                error => {
+                    exit(error);
+                }
+            );
     }
 
     /**

@@ -257,22 +257,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     touch(event, filename, mtime) {
-        let hash = crypto.createHash('md5').update(path.dirname(filename)).digest('hex');
-        let json = {
-            vars: [
-                {
-                    event: event,
-                    path: filename,
-                    mtime: mtime,
-                }
-            ],
-        };
-        this._logger.debug('directory', `Touching ${filename}`);
-        return this._filer.lockWrite(
-                path.join(this.updatesDir, hash + '.json'),
-                JSON.stringify(json, undefined, 4) + '\n',
-                { mode: this.fileMode, uid: this.user, gid: this.group }
-            );
+        return Promise.resolve();
     }
 
     /**
@@ -286,7 +271,7 @@ class Directory extends EventEmitter {
             return;
 
         for (let cb of waiting.handlers)
-            cb(false);
+            cb(false, value);
         this.waiting.delete(filename);
     }
 
@@ -297,7 +282,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     set(filename, value) {
-        this._logger.debug('directory', `Setting ${filename} to ${value}`);
+        this._logger.debug('directory', `Setting ${filename}`);
 
         if (value === null) {
             this._logger.error(`Could not set ${filename} to null`);
@@ -312,8 +297,6 @@ class Directory extends EventEmitter {
                 if (result === value)
                     return;
 
-                this._logger.debug('directory', `Setting ${filename}`);
-                let varsFile = path.join(directory, '.vars.json');
                 return this._cacher.set(filename, value)
                     .then(() => {
                         this.notify(filename, value);
@@ -324,24 +307,34 @@ class Directory extends EventEmitter {
                         );
                     })
                     .then(() => {
-                        return this._watcher.updateJson(
-                            varsFile,
-                            path.dirname(filename),
-                            (directory, json) => {
-                                json[name] = value;
-                                return json;
-                            }
-                        );
-                    })
-                    .then(() => {
-                        let mtime = 0;
+                        let exists;
                         try {
-                            let stats = fs.statSync(varsFile);
-                            mtime = Math.floor(stats.mtime.getTime() / 1000);
+                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                            exists = true;
                         } catch (error) {
-                            // do nothing
+                            exists = false;
                         }
-                        return this.touch('update', filename, mtime);
+
+                        return this._filer.lockUpdate(
+                            path.join(directory, '.vars.json'),
+                            contents => {
+                                let json;
+                                try {
+                                    json = JSON.parse(contents);
+                                } catch (error) {
+                                    if (exists) {
+                                        this._logger.error(`Premature read of ${filename}`);
+                                        return Promise.resolve(contents);
+                                    }
+                                    json = {};
+                                }
+
+
+                                json[name] = value;
+                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                            },
+                            { mode: this.fileMode, uid: this.user, gid: this.group }
+                        );
                     });
             });
     }
@@ -363,8 +356,30 @@ class Directory extends EventEmitter {
                     return result;
 
                 this._logger.debug('directory', `Reading ${filename}`);
-                return this._watcher.readJson(path.join(directory, '.vars.json'), path.dirname(filename))
-                    .then(json => {
+                let exists;
+                try {
+                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                    exists = true;
+                } catch (error) {
+                    exists = false;
+                }
+
+                return Promise.resolve()
+                    .then(() => {
+                        if (!exists)
+                            return "{}";
+
+                        return this._filer.lockRead(path.join(directory, '.vars.json'));
+                    })
+                    .then(contents => {
+                        let json;
+                        try {
+                            json = JSON.parse(contents);
+                        } catch (error) {
+                            this._logger.error(`Premature read of ${filename}`);
+                            return;
+                        }
+
                         let result = typeof json[name] === 'undefined' ? null : json[name];
 
                         return this._cacher.set(filename, result)
@@ -386,7 +401,6 @@ class Directory extends EventEmitter {
         let name = path.basename(filename);
         let directory = path.join(this.dataDir, path.dirname(filename));
 
-        this._logger.debug('directory', `Unsetting ${filename}`);
         return this._cacher.unset(filename)
             .then(() => {
                 this.notify(filename, null);
@@ -397,17 +411,22 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
-                return this._watcher.updateJson(
+                return this._filer.lockUpdate(
                     path.join(directory, '.vars.json'),
-                    path.dirname(filename),
-                    (directory, json) => {
+                    contents => {
+                        let json;
+                        try {
+                            json = JSON.parse(contents);
+                        } catch (error) {
+                            this._logger.error(`Premature read of ${filename}`);
+                            return Promise.resolve(contents);
+                        }
+
                         delete json[name];
-                        return json;
-                    }
+                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                    },
+                    { mode: this.fileMode, uid: this.user, gid: this.group }
                 );
-            })
-            .then(() => {
-                return this.touch('delete', filename, 0);
             });
     }
 
