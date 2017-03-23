@@ -117,6 +117,9 @@ class Resilio extends EventEmitter {
      * @param {string|null} filename                    Name of the file
      */
     onChangeDir(eventType, filename) {
+        if (eventType === 'change')
+            return;
+
         this._logger.debug('resilio', `Resilio directory event: ${eventType}, ${filename}`);
 
         let stats;
