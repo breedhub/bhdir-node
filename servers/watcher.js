@@ -426,11 +426,11 @@ class Watcher extends EventEmitter {
      * @param {string} filename                     Path to file
      */
     _watchJsonFile(map, filename) {
-        this._logger.debug('watcher', `Watching ${filename}`);
-
         let info = map.get(filename);
         if (!info || info.watch)
             return;
+
+        this._logger.debug('watcher', `Watching ${filename}`);
 
         info.watch = fs.watch(filename, (eventType, name) => {
             this._logger.debug('watcher', `JSON ${filename} event: ${eventType}, ${name}`);
@@ -455,12 +455,11 @@ class Watcher extends EventEmitter {
      * @param {string} filename                     Path to file
      */
     _processJsonFile(map, filename) {
-        this._logger.debug('watcher', `Processing ${filename}`);
-
         let info = map.get(filename);
         if (!info)
             return;
 
+        this._logger.debug('watcher', `Processing ${filename}`);
         info.timestamp = Date.now();
 
         let exists;
