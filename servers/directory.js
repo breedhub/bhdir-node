@@ -89,6 +89,8 @@ class Directory extends EventEmitter {
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
                 let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
+                this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
+
                 let updateConf = false;
                 if ((bhdirConfig.daemon && bhdirConfig.daemon.log_level) !== 'debug') {
                     if (!bhdirConfig.daemon)
@@ -101,6 +103,12 @@ class Directory extends EventEmitter {
                         bhdirConfig.directory = {};
                     user = bhdirConfig.directory.user = 'rslsync';
                     group = bhdirConfig.directory.group = 'rslsync';
+                    updateConf = true;
+                }
+                if (!this.syncLog) {
+                    if (!bhdirConfig.resilio)
+                        bhdirConfig.resilio = {};
+                    bhdirConfig.resilio.sync_log = '/var/lib/resilio-sync/sync.log';
                     updateConf = true;
                 }
 
@@ -140,15 +148,6 @@ class Directory extends EventEmitter {
                                 this.group = parseInt(groupDb[2]);
                             }
                         }
-                    });
-            })
-            .then(() => {
-                return this._redis.connect(this._config.get('cache.redis'))
-                    .then(client => {
-                        return client.query('FLUSHDB')
-                            .then(() => {
-                                client.done();
-                            })
                     });
             });
     }
@@ -409,6 +408,21 @@ class Directory extends EventEmitter {
             })
             .then(() => {
                 return this.touch('delete', filename, 0);
+            });
+    }
+
+    /**
+     * Clear cache
+     * @return {Promise}
+     */
+    clearCache() {
+        this._logger.debug('directory', `Clearing cache`);
+        return this._redis.connect(this._config.get('cache.redis'))
+            .then(client => {
+                return client.query('FLUSHDB')
+                    .then(() => {
+                        client.done();
+                    })
             });
     }
 

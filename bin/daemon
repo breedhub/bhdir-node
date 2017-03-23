@@ -86,7 +86,7 @@ fs.writeSync(fd, pidBuffer, 0, pidBuffer.length, null);
 
 function restart() {
     let buffer = '';
-    let proc = runner.spawn('node', [ path.join(__dirname, 'run'), 'daemon', 'directory', 'watcher' ]);
+    let proc = runner.spawn('node', [ path.join(__dirname, 'run'), 'daemon', 'directory', 'resilio' ]);
     proc.cmd.on('data', data => {
         process.stdout.write(data);
         buffer += data.toString();
@@ -102,7 +102,7 @@ function restart() {
                 try {
                     fs.appendFileSync(
                         log,
-                        '============================== CRUSH REPORT ==============================\n' +
+                        '============================== EXIT  REPORT ==============================\n' +
                         stripAnsi(buffer) +
                         '==========================================================================\n'
                     );

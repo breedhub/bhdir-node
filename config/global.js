@@ -44,8 +44,8 @@ module.exports = {
         directory: {
             class: 'servers.directory',
         },
-        watcher: {
-            class: 'servers.watcher',
+        resilio: {
+            class: 'servers.resilio',
         },
     },
 
