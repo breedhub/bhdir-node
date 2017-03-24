@@ -213,6 +213,22 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Compare two variables
+     * @param {*} var1                              First
+     * @param {*} var2                              Second
+     * @return {boolean}
+     */
+    isEqual(var1, var2) {
+        if (typeof var1 !== typeof var2)
+            return false;
+
+        if (typeof var1 === 'object')
+            return JSON.stringify(var1) === JSON.stringify(var2);
+
+        return var1 === var2;
+    }
+
+    /**
      * Wait for variable change
      * @param {string} filename                     Variable path
      * @param {number} timeout                      Timeout in ms, 0 for no timeout
@@ -222,7 +238,7 @@ class Directory extends EventEmitter {
         return this.get(filename)
             .then(result => {
                 let info = this.waiting.get(filename);
-                if (info && info.value !== result) {
+                if (info && !this.isEqual(info.value, result)) {
                     this.notify(filename, result);
                     info = null;
                 }
@@ -235,13 +251,13 @@ class Directory extends EventEmitter {
                 }
 
                 return new Promise((resolve) => {
-                    let cb = result => {
-                        this._logger.debug('directory', `Wait on ${filename} timeout: ${result}`);
-                        resolve(result);
+                    let cb = (timeout, value) => {
+                        this._logger.debug('directory', `Wait on ${filename} timeout: ${timeout}`);
+                        resolve([ timeout, value ]);
                     };
                     info.handlers.add(cb);
                     if (timeout)
-                        setTimeout(() => { cb(true); }, timeout);
+                        setTimeout(() => { cb(true, result); }, timeout);
                 });
             })
             .catch(error => {
@@ -267,7 +283,7 @@ class Directory extends EventEmitter {
      */
     notify(filename, value) {
         let waiting = this.waiting.get(filename);
-        if (!waiting || waiting.value === value)
+        if (!waiting || this.isEqual(waiting.value, value))
             return;
 
         for (let cb of waiting.handlers)
@@ -294,7 +310,7 @@ class Directory extends EventEmitter {
 
         return this.get(filename)
             .then(result => {
-                if (result === value)
+                if (this.isEqual(result, value))
                     return;
 
                 return this._cacher.set(filename, value)

@@ -335,7 +335,7 @@ class Resilio extends EventEmitter {
                                         if (typeof result === 'undefined') {
                                             this._logger.debug('resilio', `Variable ${varName} is not cached`);
                                             return;
-                                        } else if (result === value) {
+                                        } else if (this._directory.isEqual(result, value)) {
                                             this._logger.debug('resilio', `Variable ${varName} has the same value`);
                                             return;
                                         }
