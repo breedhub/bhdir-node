@@ -302,61 +302,92 @@ class Resilio extends EventEmitter {
             if (!line.length)
                 continue;
             let result = re.exec(line);
-            if (result && files.indexOf(result[1]) === -1 &&
-                result[1].startsWith(this._directory.dataDir) && result[1].endsWith('.vars.json'))
-            {
-                this._logger.info(`File updated: ${result[1]}`);
-                files.push(result[1]);
+            if (!result)
+                continue;
+
+            let file;
+            if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.vars.json'))
+                file = path.dirname(result[1]);
+            if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.attrs.json'))
+                file = path.dirname(path.dirname(result[1]));
+
+            if (file && files.indexOf(file) === -1) {
+                this._logger.info(`Path updated: ${file}`);
+                files.push(file);
             }
         }
 
-        let promises = [];
-        for (let file of files)
-            promises.push(this._filer.lockRead(file));
+        let updates = {};
 
-        if (!promises.length)
-            exit();
+        let promises = [];
+        for (let file of files) {
+            promises.push(
+                this._filer.lockRead(path.join(file, '.vars.json'))
+                    .then(contents => {
+                        let json;
+                        try {
+                            json = JSON.parse(contents);
+                        } catch (error) {
+                            return;
+                        }
+
+                        updates[file] = {
+                            path: file,
+                            vars: json,
+                            attrs: {},
+                        };
+
+                        let attrPromises = [];
+                        for (let name of Object.keys(json)) {
+                            attrPromises.push(
+                                this._filer.lockRead(path.join(file, '.vars.json'))
+                                    .then(contents => {
+                                            let json;
+                                            try {
+                                                json = JSON.parse(contents);
+                                            } catch (error) {
+                                                return;
+                                            }
+
+                                            updates[file]['attrs'][name] = json;
+                                        })
+                            );
+                        }
+
+                        if (attrPromises.length)
+                            return Promise.all(attrPromises);
+                    })
+            );
+        }
 
         Promise.all(promises)
-            .then(result => {
+            .then(() => {
                 promises = [];
-                for (let i = 0; i < result.length; i++ ) {
-                    let json;
-                    try {
-                        json = JSON.parse(result[i]);
-                    } catch (error) {
-                        continue;
-                    }
-                    let directory = path.dirname(files[i].substring(this._directory.dataDir.length));
-                    for (let key of Object.keys(json)) {
-                        let varName = path.join(directory, key);
-                        ((varName, value) => {
+                for (let update of Object.keys(updates)) {
+                    (update => {
+                        let directory = update.path.substring(this._directory.dataDir.length);
+                        for (let key of Object.keys(updates.vars)) {
+                            let varName = path.join(directory, key);
+                            let varValue = update.vars[key];
+                            let varTime = update.attrs[key]['attrs']['mtime'] || 0;
                             promises.push(
                                 this._cacher.get(varName)
                                     .then(result => {
-                                        if (typeof result === 'undefined') {
-                                            this._logger.debug('resilio', `Variable ${varName} is not cached`);
+                                        if (typeof result === 'undefined' || this._directory.isEqual(result, varValue))
                                             return;
-                                        } else if (this._directory.isEqual(result, value)) {
-                                            this._logger.debug('resilio', `Variable ${varName} has the same value`);
-                                            return;
-                                        }
 
-                                        this._logger.info(`Variable ${varName} has changed`);
-                                        return this._cacher.set(varName, value);
+                                        return this._cacher.set(varName, varValue);
                                     })
                                     .then(() => {
-                                        this._directory.notify(varName, value);
+                                        this._directory.notify(varName, varValue, varTime);
                                     })
                             );
-                        })(varName, json[key]);
-                    }
+                        }
+                    })(update);
                 }
 
-                if (!promises.length)
-                    return;
-
-                return Promise.all(promises);
+                if (promises.length)
+                    return Promise.all(promises);
             })
             .then(
                 () => {

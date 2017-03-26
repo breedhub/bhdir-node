@@ -77,7 +77,7 @@ class Directory extends EventEmitter {
      * @type {string[]}
      */
     static get protectedAttrs() {
-        return [ 'ctime', 'mtime' ];
+        return [ 'id', 'ctime', 'mtime' ];
     }
     /**
      * Initialize the server
