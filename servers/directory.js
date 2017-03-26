@@ -72,6 +72,13 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Protected attributes
+     * @type {string[]}
+     */
+    static get protectedAttrs() {
+        return [ 'ctime', 'mtime' ];
+    }
+    /**
      * Initialize the server
      * @param {string} name                     Config section name
      * @return {Promise}
@@ -253,14 +260,15 @@ class Directory extends EventEmitter {
     wait(filename, timeout) {
         return this.get(filename)
             .then(result => {
+                let value = typeof result === 'undefined' ? null : result;
                 let info = this.waiting.get(filename);
-                if (info && !this.isEqual(info.value, result)) {
-                    this.notify(filename, result);
+                if (info && !this.isEqual(info.value, value)) {
+                    this.notify(filename, value);
                     info = null;
                 }
                 if (!info) {
                     info = {
-                        value: result,
+                        value: value,
                         handlers: new Set(),
                     };
                     this.waiting.set(filename, info);
@@ -287,6 +295,9 @@ class Directory extends EventEmitter {
      * @param {*} value                             Variable value
      */
     notify(filename, value) {
+        if (typeof value === 'undefined')
+            value = null;
+
         let waiting = this.waiting.get(filename);
         if (!waiting || this.isEqual(waiting.value, value))
             return;
@@ -315,6 +326,12 @@ class Directory extends EventEmitter {
 
         return this.get(filename)
             .then(result => {
+                let ctime = 0;
+                if (typeof result === 'undefined') {
+                    result = null;
+                    ctime = Math.round(Date.now() / 1000);
+                }
+
                 if (this.isEqual(result, value))
                     return;
 
@@ -372,6 +389,14 @@ class Directory extends EventEmitter {
                                     };
                                     retry();
                                 });
+                            })
+                            .then(() => {
+                                if (ctime)
+                                    return this.setAttr(filename, 'ctime', ctime);
+                            })
+                            .then(() => {
+                                let now = Math.round(Date.now() / 1000);
+                                return this.setAttr(filename, 'mtime', now);
                             })
                             .catch(error => {
                                 this._logger.error(`FS error: ${error.message}`);
@@ -435,11 +460,9 @@ class Directory extends EventEmitter {
                         });
                     })
                     .then(json => {
-                        let result = typeof json[name] === 'undefined' ? null : json[name];
-
-                        return this._cacher.set(filename, result)
+                        return this._cacher.set(filename, typeof json[name] === 'undefined' ? null : json[name])
                             .then(() => {
-                                return result;
+                                return json[name];
                             });
                     });
             });

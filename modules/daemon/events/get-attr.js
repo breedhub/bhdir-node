@@ -76,7 +76,7 @@ class GetAttr {
 
         this.directory.getAttr(filename, name)
             .then(result => {
-                reply(true, result);
+                reply(true, typeof result === 'undefined' ? null : result);
             })
             .catch(error => {
                 reply(false, error.message);

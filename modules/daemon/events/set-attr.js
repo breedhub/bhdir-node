@@ -66,8 +66,12 @@ class SetAttr {
         let filename = message.args[0];
         let name = message.args[1];
         let value = message.args[2];
+
         if (!this.directory.validatePath(filename))
             return reply(false, 'Invalid path');
+
+        if (this.directory.constructor.protectedAttrs.indexOf(name) !== -1)
+            return reply(false, 'Protected attribute');
 
         this.directory.setAttr(filename, name, value)
             .then(() => {
