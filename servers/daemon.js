@@ -314,6 +314,15 @@ class Daemon extends EventEmitter {
                 case 'touch':
                     this.emit('touch', id, message);
                     break;
+                case 'set-attr':
+                    this.emit('set_attr', id, message);
+                    break;
+                case 'get-attr':
+                    this.emit('get_attr', id, message);
+                    break;
+                case 'del-attr':
+                    this.emit('del_attr', id, message);
+                    break;
                 case 'clear-cache':
                     this.emit('clear_cache', id, message);
                     break;

@@ -56,6 +56,22 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Retry reading/writing ofter waiting this much
+     * @type {number}
+     */
+    static get dataRetryInterval() {
+        return 1000; // ms
+    }
+
+    /**
+     * Retry reading/writing this many times
+     * @type {number}
+     */
+    static get dataRetryMax() {
+        return 5;
+    }
+
+    /**
      * Initialize the server
      * @param {string} name                     Config section name
      * @return {Promise}
@@ -266,17 +282,6 @@ class Directory extends EventEmitter {
     }
 
     /**
-     * Signal variable change
-     * @param {string} event                        'update' or 'delete'
-     * @param {string} filename                     Variable path
-     * @param {number} mtime                        Expected modification time
-     * @return {Promise}
-     */
-    touch(event, filename, mtime) {
-        return Promise.resolve();
-    }
-
-    /**
      * Notify about variable change
      * @param {string} filename                     Variable path
      * @param {*} value                             Variable value
@@ -317,40 +322,60 @@ class Directory extends EventEmitter {
                     .then(() => {
                         this.notify(filename, value);
 
-                        return this._filer.createDirectory(
-                            directory,
-                            { mode: this.dirMode, uid: this.user, gid: this.group }
-                        );
-                    })
-                    .then(() => {
-                        let exists;
-                        try {
-                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
-                            exists = true;
-                        } catch (error) {
-                            exists = false;
-                        }
-
-                        return this._filer.lockUpdate(
-                            path.join(directory, '.vars.json'),
-                            contents => {
-                                let json;
+                        this._filer.createDirectory(
+                                directory,
+                                { mode: this.dirMode, uid: this.user, gid: this.group }
+                            )
+                            .then(() => {
+                                let exists;
                                 try {
-                                    json = JSON.parse(contents);
+                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                    exists = true;
                                 } catch (error) {
-                                    if (exists) {
-                                        this._logger.error(`Premature read of ${filename}`);
-                                        return Promise.resolve(contents);
-                                    }
-                                    json = {};
+                                    exists = false;
                                 }
 
+                                return new Promise((resolve, reject) => {
+                                    let tries = 0;
+                                    let retry = () => {
+                                        if (++tries > this.constructor.dataRetryMax)
+                                            return reject(new Error(`Max retries reached while setting ${filename}`));
 
-                                json[name] = value;
-                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                            },
-                            { mode: this.fileMode, uid: this.user, gid: this.group }
-                        );
+                                        let success = false;
+                                        this._filer.lockUpdate(
+                                            path.join(directory, '.vars.json'),
+                                            contents => {
+                                                let json;
+                                                try {
+                                                    json = JSON.parse(contents);
+                                                } catch (error) {
+                                                    if (exists)
+                                                        return Promise.resolve(contents);
+                                                    json = {};
+                                                }
+
+                                                success = true;
+                                                json[name] = value;
+                                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                            },
+                                            { mode: this.fileMode, uid: this.user, gid: this.group }
+                                            )
+                                            .then(() => {
+                                                if (success)
+                                                    return resolve();
+
+                                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                            })
+                                            .catch(error => {
+                                                reject(error);
+                                            });
+                                    };
+                                    retry();
+                                });
+                            })
+                            .catch(error => {
+                                this._logger.error(`FS error: ${error.message}`);
+                            });
                     });
             });
     }
@@ -371,7 +396,6 @@ class Directory extends EventEmitter {
                 if (typeof result !== 'undefined')
                     return result;
 
-                this._logger.debug('directory', `Reading ${filename}`);
                 let exists;
                 try {
                     fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
@@ -383,19 +407,34 @@ class Directory extends EventEmitter {
                 return Promise.resolve()
                     .then(() => {
                         if (!exists)
-                            return "{}";
+                            return {};
 
-                        return this._filer.lockRead(path.join(directory, '.vars.json'));
+                        return new Promise((resolve, reject) => {
+                            let tries = 0;
+                            let retry = () => {
+                                if (++tries > this.constructor.dataRetryMax)
+                                    return reject(new Error(`Max retries reached while getting ${filename}`));
+
+                                this._filer.lockRead(path.join(directory, '.vars.json'))
+                                    .then(contents => {
+                                        let json;
+                                        try {
+                                            json = JSON.parse(contents);
+                                        } catch (error) {
+                                            setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                            return;
+                                        }
+
+                                        resolve(json);
+                                    })
+                                    .catch(error => {
+                                        reject(error);
+                                    });
+                            };
+                            retry();
+                        });
                     })
-                    .then(contents => {
-                        let json;
-                        try {
-                            json = JSON.parse(contents);
-                        } catch (error) {
-                            this._logger.error(`Premature read of ${filename}`);
-                            return;
-                        }
-
+                    .then(json => {
                         let result = typeof json[name] === 'undefined' ? null : json[name];
 
                         return this._cacher.set(filename, result)
@@ -421,28 +460,245 @@ class Directory extends EventEmitter {
             .then(() => {
                 this.notify(filename, null);
 
-                return this._filer.createDirectory(
-                    directory,
-                    { mode: this.dirMode, uid: this.user, gid: this.group }
-                );
-            })
-            .then(() => {
-                return this._filer.lockUpdate(
-                    path.join(directory, '.vars.json'),
-                    contents => {
-                        let json;
+                this._filer.createDirectory(
+                        directory,
+                        { mode: this.dirMode, uid: this.user, gid: this.group }
+                    )
+                    .then(() => {
                         try {
-                            json = JSON.parse(contents);
+                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
                         } catch (error) {
-                            this._logger.error(`Premature read of ${filename}`);
-                            return Promise.resolve(contents);
+                            return;
                         }
 
-                        delete json[name];
-                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                    },
-                    { mode: this.fileMode, uid: this.user, gid: this.group }
-                );
+                        return new Promise((resolve, reject) => {
+                            let tries = 0;
+                            let retry = () => {
+                                if (++tries > this.constructor.dataRetryMax)
+                                    return reject(new Error(`Max retries reached while deleting ${filename}`));
+
+                                let success = false;
+                                this._filer.lockUpdate(
+                                        path.join(directory, '.vars.json'),
+                                        contents => {
+                                            let json;
+                                            try {
+                                                json = JSON.parse(contents);
+                                            } catch (error) {
+                                                return Promise.resolve(contents);
+                                            }
+
+                                            success = true;
+                                            delete json[name];
+                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                        },
+                                        { mode: this.fileMode, uid: this.user, gid: this.group }
+                                    )
+                                    .then(() => {
+                                        if (success)
+                                            return resolve();
+
+                                        setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                    })
+                                    .catch(error => {
+                                        reject(error);
+                                    });
+                            };
+                            retry();
+                        });
+                    })
+                    .catch(error => {
+                        this._logger.error(`FS error: ${error.message}`);
+                    });
+            });
+    }
+
+    /**
+     * Signal variable change
+     * @param {string} event                        'update' or 'delete'
+     * @param {string} filename                     Variable path
+     * @param {number} mtime                        Expected modification time
+     * @return {Promise}
+     */
+    touch(event, filename, mtime) {
+        return Promise.resolve();
+    }
+
+    /**
+     * Set attribute
+     * @param {string} filename                     Variable path
+     * @param {*} name                              Attribute name
+     * @param {*} value                             Attribute value
+     * @return {Promise}
+     */
+    setAttr(filename, name, value) {
+        this._logger.debug('directory', `Setting attribute ${name} of ${filename}`);
+
+        if (value === null) {
+            this._logger.error(`Could not set attribute ${name} of ${filename} to null`);
+            return Promise.resolve();
+        }
+
+        return this._filer.createDirectory(
+                path.join(this.dataDir, filename),
+                { mode: this.dirMode, uid: this.user, gid: this.group }
+            )
+            .then(() => {
+                let exists;
+                try {
+                    fs.accessSync(path.join(this.dataDir, filename, '.attrs.json'), fs.constants.F_OK);
+                    exists = true;
+                } catch (error) {
+                    exists = false;
+                }
+
+                return new Promise((resolve, reject) => {
+                    let tries = 0;
+                    let retry = () => {
+                        if (++tries > this.constructor.dataRetryMax)
+                            return reject(new Error(`Max retries reached while setting attribute ${name} of ${filename}`));
+
+                        let success = false;
+                        this._filer.lockUpdate(
+                                path.join(this.dataDir, filename, '.attrs.json'),
+                                contents => {
+                                    let json;
+                                    try {
+                                        json = JSON.parse(contents);
+                                    } catch (error) {
+                                        if (exists)
+                                            return Promise.resolve(contents);
+                                        json = {};
+                                    }
+
+                                    success = true;
+                                    json[name] = value;
+                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                },
+                                { mode: this.fileMode, uid: this.user, gid: this.group }
+                            )
+                            .then(() => {
+                                if (success)
+                                    return resolve();
+
+                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                            })
+                            .catch(error => {
+                                reject(error);
+                            });
+                    };
+                    retry();
+                });
+            });
+    }
+
+    /**
+     * Get attribute
+     * @param {string} filename                     Variable path
+     * @param {string} name                         Attribute name
+     * @return {Promise}
+     */
+    getAttr(filename, name) {
+        this._logger.debug('directory', `Getting attribute ${name} of ${filename}`);
+
+        let exists;
+        try {
+            fs.accessSync(path.join(this.dataDir, filename, '.attrs.json'), fs.constants.F_OK);
+            exists = true;
+        } catch (error) {
+            exists = false;
+        }
+
+        return Promise.resolve()
+            .then(() => {
+                if (!exists)
+                    return {};
+
+                return new Promise((resolve, reject) => {
+                    let tries = 0;
+                    let retry = () => {
+                        if (++tries > this.constructor.dataRetryMax)
+                            return reject(new Error(`Max retries reached while getting attribute ${name} of ${filename}`));
+
+                        this._filer.lockRead(path.join(this.dataDir, filename, '.attrs.json'))
+                            .then(contents => {
+                                let json;
+                                try {
+                                    json = JSON.parse(contents);
+                                } catch (error) {
+                                    setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                    return;
+                                }
+
+                                resolve(json);
+                            })
+                            .catch(error => {
+                                reject(error);
+                            });
+                    };
+                    retry();
+                });
+            })
+            .then(json => {
+                return typeof json[name] === 'undefined' ? null : json[name];
+            });
+    }
+
+    /**
+     * Delete attribute
+     * @param {string} filename                     Variable path
+     * @param {string} name                         Attribute name
+     * @return {Promise}
+     */
+    delAttr(filename, name) {
+        this._logger.debug('directory', `Deleting attribute ${name} of ${filename}`);
+
+        return this._filer.createDirectory(
+                path.join(this.dataDir, filename),
+                { mode: this.dirMode, uid: this.user, gid: this.group }
+            )
+            .then(() => {
+                try {
+                    fs.accessSync(path.join(this.dataDir, filename, '.attrs.json'), fs.constants.F_OK);
+                } catch (error) {
+                    return;
+                }
+
+                return new Promise((resolve, reject) => {
+                    let tries = 0;
+                    let retry = () => {
+                        if (++tries > this.constructor.dataRetryMax)
+                            return reject(new Error(`Max retries reached while deleting attribute ${name} of ${filename}`));
+
+                        let success = false;
+                        this._filer.lockUpdate(
+                                path.join(this.dataDir, filename, '.attrs.json'),
+                                contents => {
+                                    let json;
+                                    try {
+                                        json = JSON.parse(contents);
+                                    } catch (error) {
+                                        return Promise.resolve(contents);
+                                    }
+
+                                    success = true;
+                                    delete json[name];
+                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                },
+                                { mode: this.fileMode, uid: this.user, gid: this.group }
+                            )
+                            .then(() => {
+                                if (success)
+                                    return resolve();
+
+                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                            })
+                            .catch(error => {
+                                reject(error);
+                            });
+                    };
+                    retry();
+                });
             });
     }
 

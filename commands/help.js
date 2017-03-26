@@ -186,6 +186,51 @@ class Help {
     }
 
     /**
+     * Set Attr command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpSetAttr(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl set-attr <path> <name> <value> [-t <type>] [-z <socket>]\n\n' +
+                '\tSet attribute to a value. <type> could be one of: string (default), number, boolean and json.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Get Attr command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpGetAttr(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl get-attr <path> <name>\n\n' +
+                '\tGet attribute value\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Del Attr command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpDelAttr(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl del-attr <path> <name> [-z <socket>]\n\n' +
+                '\tDelete an attribute.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
      * Start command
      * @param {string[]} argv           Arguments
      * @return {Promise}

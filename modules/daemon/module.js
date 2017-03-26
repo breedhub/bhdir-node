@@ -70,6 +70,15 @@ class Daemon {
         let touch = this._app.get('modules.daemon.events.touch');
         server.on('touch', touch.handle.bind(touch));
 
+        let setAttr = this._app.get('modules.daemon.events.setAttr');
+        server.on('set_attr', setAttr.handle.bind(setAttr));
+
+        let getAttr = this._app.get('modules.daemon.events.getAttr');
+        server.on('get_attr', getAttr.handle.bind(getAttr));
+
+        let delAttr = this._app.get('modules.daemon.events.delAttr');
+        server.on('del_attr', delAttr.handle.bind(delAttr));
+
         let clearCache = this._app.get('modules.daemon.events.clearCache');
         server.on('clear_cache', clearCache.handle.bind(clearCache));
 
