@@ -114,9 +114,9 @@ class Directory extends EventEmitter {
 
                 if (updateConf) {
                     fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
-                    return this._app.error('Settings updated - restarting\n')
+                    return this._app.info('Settings updated - restarting\n')
                         .then(() => {
-                            process.exit(1);
+                            process.exit(200);
                         });
                 }
 
@@ -411,8 +411,8 @@ class Directory extends EventEmitter {
      * @param {string} filename                     Variable path
      * @return {Promise}
      */
-    unset(filename) {
-        this._logger.debug('directory', `Unsetting ${filename}`);
+    del(filename) {
+        this._logger.debug('directory', `Deleting ${filename}`);
 
         let name = path.basename(filename);
         let directory = path.join(this.dataDir, path.dirname(filename));

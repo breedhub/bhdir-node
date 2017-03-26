@@ -65,7 +65,7 @@ class Help {
                 '\tinstall\t\tRegister the program in the system\n' +
                 '\tset\t\tSet variable value\n' +
                 '\tget\t\tGet variable value\n' +
-                '\tunset\t\tUnset variable\n' +
+                '\tdel\t\tDelete a variable\n' +
                 '\twait\t\tWait for variable update\n' +
                 '\ttouch\t\tTrigger variable update\n' +
                 '\tstart\t\tStart the daemon\n' +
@@ -140,13 +140,13 @@ class Help {
     }
 
     /**
-     * Unset command
+     * Del command
      * @param {string[]} argv           Arguments
      * @return {Promise}
      */
-    helpUnset(argv) {
+    helpDel(argv) {
         return this._app.info(
-                'Usage:\tbhdirctl unset <path> [-z <socket>]\n\n' +
+                'Usage:\tbhdirctl del <path> [-z <socket>]\n\n' +
                 '\tDelete a variable.\n'
             )
             .then(() => {

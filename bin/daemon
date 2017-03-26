@@ -111,7 +111,7 @@ function restart() {
                 }
             }
 
-            if (!config.email.crush.enable)
+            if (result.code === 255 || !config.email.crush.enable)
                 return setTimeout(() => { restart(); }, restartPause);
 
             return emailer.send({
