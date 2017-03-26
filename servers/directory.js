@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const ini = require('ini');
+const uuid = require('uuid');
 const crypto = require('crypto');
 const EventEmitter = require('events');
 const WError = require('verror').WError;
@@ -370,12 +371,6 @@ class Directory extends EventEmitter {
 
         return this.get(filename)
             .then(result => {
-                let ctime = 0;
-                if (typeof result === 'undefined') {
-                    result = null;
-                    ctime = Math.round(Date.now() / 1000);
-                }
-
                 if (this.isEqual(result, value))
                     return;
 
@@ -431,10 +426,6 @@ class Directory extends EventEmitter {
                                     };
                                     retry();
                                 });
-                            })
-                            .then(() => {
-                                if (ctime)
-                                    return this.setAttr(filename, 'ctime', ctime);
                             })
                             .then(() => {
                                 let now = Math.round(Date.now() / 1000);
@@ -649,8 +640,11 @@ class Directory extends EventEmitter {
                                         json = {};
                                     }
 
+                                    this._initAttrs(json);
+
                                     success = true;
                                     json[name] = value;
+
                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                 },
                                 { mode: this.fileMode, uid: this.user, gid: this.group }
@@ -759,6 +753,8 @@ class Directory extends EventEmitter {
                                         return Promise.resolve(contents);
                                     }
 
+                                    this._initAttrs(json);
+
                                     success = true;
                                     delete json[name];
                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
@@ -793,6 +789,17 @@ class Directory extends EventEmitter {
                         client.done();
                     })
             });
+    }
+
+    /**
+     * Init attributes
+     * @param {object} json                             Attributes
+     */
+    _initAttrs(json) {
+        if (!json['id'])
+            json['id'] = uuid.v4();
+        if (!json['ctime'])
+            json['ctime'] = Math.round(Date.now() / 1000);
     }
 
     /**
