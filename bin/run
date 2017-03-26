@@ -10,8 +10,4 @@ if (!argv.length) {
 }
 
 const server = new Server(path.join(__dirname, '..'), argv);
-server.run(...argv)
-    .catch(error => {
-        console.error(error);
-        process.exit(1);
-    });
+server.run(...argv);

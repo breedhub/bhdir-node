@@ -5,6 +5,7 @@
 const path = require('path');
 const net = require('net');
 const uuid = require('uuid');
+const argvParser = require('argv');
 const SocketWrapper = require('socket-wrapper');
 
 /**
@@ -45,23 +46,39 @@ class Wait {
      * @return {Promise}
      */
     run(argv) {
-        if (argv['_'].length < 2)
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .option({
+                name: 'timeout',
+                short: 't',
+                type: 'float',
+            })
+            .option({
+                name: 'socket',
+                short: 'z',
+                type: 'string',
+            })
+            .run(argv);
+
+        if (args.targets.length < 2)
             return this._help.helpWait(argv);
 
-        let waitPath = argv['_'][1];
-        let waitTimeout = argv['t'] || 0;
-        let sockName = argv['z'];
+        let waitPath = args.targets[1];
 
         let request = {
             id: uuid.v1(),
             command: 'wait',
             args: [
                 waitPath,
-                waitTimeout
+                Math.round(args.options['timeout'] * 1000)
             ]
         };
 
-        return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
+        return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
             .then(reply => {
                 let response = JSON.parse(reply.toString());
                 if (response.id !== request.id)

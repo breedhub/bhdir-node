@@ -2,6 +2,7 @@
  * Help command
  * @module commands/help
  */
+const argvParser = require('argv');
 
 /**
  * Command class
@@ -41,10 +42,11 @@ class Help {
      * @return {Promise}
      */
     run(argv) {
-        if (argv['_'].length < 2)
+        let args = argvParser.run(argv);
+        if (args.targets.length < 2)
             return this.usage();
 
-        let method = this[`help${this._util.dashedToCamel(argv['_'][1], true)}`];
+        let method = this[`help${this._util.dashedToCamel(args.targets[1], true)}`];
         if (typeof method !== 'function')
             return this.usage();
 
@@ -159,8 +161,8 @@ class Help {
      */
     helpWait(argv) {
         return this._app.info(
-                'Usage:\tbhdirctl wait <path>\n\n' +
-                '\tWait for variable update event and return new value.\n'
+                'Usage:\tbhdirctl wait <path> [-t <seconds>]\n\n' +
+                '\tWait for variable update event and return new value. -t is optional timeout\n'
             )
             .then(() => {
                 process.exit(0);

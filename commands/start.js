@@ -4,6 +4,7 @@
  */
 const path = require('path');
 const execFile = require('child_process').execFile;
+const argvParser = require('argv');
 
 /**
  * Command class
@@ -43,12 +44,28 @@ class Start {
      * @return {Promise}
      */
     run(argv) {
-        let install = !!argv['i'];
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .option({
+                name: 'install',
+                short: 'i',
+                type: 'boolean',
+            })
+            .option({
+                name: 'socket',
+                short: 'z',
+                type: 'string',
+            })
+            .run(argv);
 
         return Promise.resolve()
             .then(() => {
-                if (install)
-                    return this._install.install();
+                if (args.options['install'])
+                    return this._install.install(args.options['socket']);
             })
             .then(() => {
                 return this.launch()

@@ -3,9 +3,9 @@
 const path = require('path');
 const Console = require('arpen').Console;
 
-const console = new Console(path.join(__dirname, '..'), process.argv.slice(2));
-console.run()
-    .catch(error => {
-        console.error(error);
-        process.exit(1);
-    });
+let argv = process.argv.slice(2);
+if (!argv.length)
+    argv = [ 'help' ];
+
+const console = new Console(path.join(__dirname, '..'), argv);
+console.run();

@@ -3,6 +3,7 @@
  * @module commands/restart
  */
 const path = require('path');
+const argvParser = require('argv');
 
 /**
  * Command class
@@ -46,7 +47,23 @@ class Restart {
      * @return {Promise}
      */
     run(argv) {
-        let install = !!argv['i'];
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .option({
+                name: 'install',
+                short: 'i',
+                type: 'boolean',
+            })
+            .option({
+                name: 'socket',
+                short: 'z',
+                type: 'string',
+            })
+            .run(argv);
 
         let onSignal = this._app.onSignal;
         this._app.onSignal = signal => {
@@ -56,8 +73,8 @@ class Restart {
 
         return this._stop.terminate()
             .then(() => {
-                if (install)
-                    return this._install.install();
+                if (args.options['install'])
+                    return this._install.install(args.options['socket']);
             })
             .then(() => {
                 return this._start.launch();

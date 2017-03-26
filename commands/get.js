@@ -5,6 +5,7 @@
 const path = require('path');
 const net = require('net');
 const uuid = require('uuid');
+const argvParser = require('argv');
 const SocketWrapper = require('socket-wrapper');
 
 /**
@@ -45,11 +46,23 @@ class Get {
      * @return {Promise}
      */
     run(argv) {
-        if (argv['_'].length < 2)
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .option({
+                name: 'socket',
+                short: 'z',
+                type: 'string',
+            })
+            .run(argv);
+
+        if (args.targets.length < 2)
             return this._help.helpGet(argv);
 
-        let getPath = argv['_'][1];
-        let sockName = argv['z'];
+        let getPath = args.targets[1];
 
         let request = {
             id: uuid.v1(),
@@ -59,7 +72,7 @@ class Get {
             ]
         };
 
-        return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
+        return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
             .then(reply => {
                 let response = JSON.parse(reply.toString());
                 if (response.id !== request.id || !response.results.length)
