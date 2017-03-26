@@ -95,8 +95,10 @@ class Resilio extends EventEmitter {
                 let dir = path.dirname(this._directory.syncLog);
                 this._logger.debug('resilio', `Watching ${dir}`);
                 this.dirWatcher = fs.watch(dir, this.onChangeDir.bind(this));
-                if (!this.dirWatcher)
-                    throw new Error(`Could not install watcher for ${dir}`);
+                if (!this.dirWatcher) {
+                    this._logger.error(`Could not install watcher for ${dir}`);
+                    return;
+                }
 
                 this.dirWatcher.on('error', this.onErrorDir.bind(this));
 

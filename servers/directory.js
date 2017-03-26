@@ -112,6 +112,7 @@ class Directory extends EventEmitter {
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
                 let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
+                let syncUser = (bhdirConfig.resilio && bhdirConfig.resilio.user) || 'root';
                 this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
 
                 let updateConf = false;
@@ -121,11 +122,17 @@ class Directory extends EventEmitter {
                     bhdirConfig.daemon.log_level = 'debug';
                     updateConf = true;
                 }
-                if (user === '999' || group === '999') { // TODO: Remove this
+                if (user === '999' || group === '999' || group === 'rslsync') { // TODO: Remove this
                     if (!bhdirConfig.directory)
                         bhdirConfig.directory = {};
                     user = bhdirConfig.directory.user = 'rslsync';
-                    group = bhdirConfig.directory.group = 'rslsync';
+                    group = bhdirConfig.directory.group = 'bhdir';
+                    updateConf = true;
+                }
+                if (!syncUser) {
+                    if (!bhdirConfig.resilio)
+                        bhdirConfig.resilio = {};
+                    bhdirConfig.resilio.user = 'rslsync';
                     updateConf = true;
                 }
                 if (!this.syncLog) {
@@ -146,8 +153,9 @@ class Directory extends EventEmitter {
                 return Promise.all([
                         this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
                         this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
+                        this._runner.exec('grep', [ '-E', `^${syncUser}:`, '/etc/passwd' ]),
                     ])
-                    .then(([ userInfo, groupInfo ]) => {
+                    .then(([ userInfo, groupInfo, syncUserInfo ]) => {
                         if (user.length && parseInt(user).toString() === user) {
                             this.user = parseInt(user);
                         } else {
@@ -169,6 +177,18 @@ class Directory extends EventEmitter {
                                 this._logger.error(`Directory group ${group} not found`);
                             } else {
                                 this.group = parseInt(groupDb[2]);
+                            }
+                        }
+
+                        if (syncUser.length && parseInt(syncUser).toString() === syncUser) {
+                            this.syncUser = parseInt(syncUser);
+                        } else {
+                            let syncUserDb = syncUserInfo.stdout.trim().split(':');
+                            if (syncUserInfo.code !== 0 || syncUserDb.length !== 7) {
+                                this.syncUser = null;
+                                this._logger.error(`Resilio user ${syncUser} not found`);
+                            } else {
+                                this.syncUser = parseInt(syncUserDb[2]);
                             }
                         }
                     });
@@ -198,6 +218,24 @@ class Directory extends EventEmitter {
                 },
                 Promise.resolve()
             )
+            .then(() => {
+                if (!this.group)
+                    return;
+
+                if (os.platform() === 'freebsd')
+                    return this._runner.exec('pw', [ 'groupadd', this.group ]);
+
+                return this._runner.exec('groupadd', [ this.group ]);
+            })
+            .then(() => {
+                if (!this.group || !this.syncUser)
+                    return;
+
+                if (os.platform() === 'freebsd')
+                    return this._runner.exec('pw', [ 'groupmod', this.group, '-m', this.syncUser ]);
+
+                return this._runner.exec('usermod', [ '-G', this.group, '-a', this.syncUser ]);
+            })
             .then(() => {
                 return this._filer.createDirectory(
                     this.rootDir,
