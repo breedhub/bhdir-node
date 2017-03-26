@@ -428,11 +428,13 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(() => {
-                                let now = Math.round(Date.now() / 1000);
-                                return this.setAttr(filename, 'mtime', now)
-                                    .then(() => {
-                                        this.notify(filename, value, now);
-                                    });
+                                return this.addHistory(filename, value)
+                                    .then(mtime => {
+                                        return this.setAttr(filename, 'mtime', mtime)
+                                            .then(() => {
+                                                this.notify(filename, value, mtime);
+                                            });
+                                    })
                             })
                             .catch(error => {
                                 this._logger.error(`FS error: ${error.message}`);
@@ -777,6 +779,67 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Add history record
+     * @param {string} filename                     Variable path
+     * @param {*} value                             New value
+     * @return {Promise}                            Resolves to mtime
+     */
+    addHistory(filename, value) {
+        this._logger.debug('directory', `Adding to history of ${filename}`);
+
+        let now = new Date();
+        let mtime = Math.round(now.getTime() / 1000);
+        let directory = path.join(
+            this.dataDir,
+            filename,
+            '.history',
+            now.getUTCFullYear().toString(),
+            this._padNumber(now.getUTCMonth() + 1, 2),
+            this._padNumber(now.getUTCDate(), 2),
+            this._padNumber(now.getUTCHours(), 2)
+        );
+
+        let json = {
+            id: uuid.v4(),
+            mtime: mtime,
+            value: value,
+        };
+
+        return this._filer.createDirectory(
+            directory,
+            { mode: this.dirMode, uid: this.user, gid: this.group }
+            )
+            .then(() => {
+                let name;
+                let files = fs.readdirSync(directory);
+                let numbers = [];
+                let re = /^(\d+)\.json$/;
+                for (let file of files) {
+                    let result = re.exec(file);
+                    if (!result)
+                        continue;
+                    numbers.push(parseInt(result[1]));
+                }
+                if (numbers.length) {
+                    numbers.sort();
+                    name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
+                } else {
+                    name = '0001';
+                }
+                name = name + '.json';
+
+                return this._filer.lockWrite(
+                    path.join(directory, name),
+                    JSON.stringify(json, undefined, 4) + '\n',
+                    {mode: this.fileMode, uid: this.user, gid: this.group}
+                );
+            })
+            .then(() => {
+                return mtime;
+            });
+    }
+
+    /**
      * Clear cache
      * @return {Promise}
      */
@@ -800,6 +863,18 @@ class Directory extends EventEmitter {
             json['id'] = uuid.v4();
         if (!json['ctime'])
             json['ctime'] = Math.round(Date.now() / 1000);
+    }
+
+    /**
+     * Pad number with zeros
+     * @param {number} value
+     * @param {number} length
+     */
+    _padNumber(value, length) {
+        let result = value.toString();
+        while (result.length < length)
+            result = '0' + result;
+        return result;
     }
 
     /**

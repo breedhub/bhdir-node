@@ -306,6 +306,8 @@ class Resilio extends EventEmitter {
                 continue;
 
             let file;
+            if (result[1].indexOf('/.files/') !== -1)
+                continue;
             if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.vars.json'))
                 file = path.dirname(result[1]);
             if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.attrs.json'))
