@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 
-const argv = require('minimist')(process.argv.slice(2));
 const path = require('path');
 const Server = require('arpen').Server;
 
-if (!argv['_'].length) {
+let argv = process.argv.slice(2);
+if (!argv.length) {
     console.error('Usage:\trun <server-name> [... <server-name>]');
     process.exit(1);
 }
 
 const server = new Server(path.join(__dirname, '..'), argv);
-server.run(...argv['_']);
+server.run(...argv)
+    .catch(error => {
+        console.error(error);
+        process.exit(1);
+    });

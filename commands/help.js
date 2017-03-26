@@ -37,7 +37,7 @@ class Help {
 
     /**
      * Run the command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     run(argv) {
@@ -78,7 +78,7 @@ class Help {
 
     /**
      * Help command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpHelp(argv) {
@@ -93,7 +93,7 @@ class Help {
 
     /**
      * Install command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpInstall(argv) {
@@ -109,7 +109,7 @@ class Help {
 
     /**
      * Set command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpSet(argv) {
@@ -124,7 +124,7 @@ class Help {
 
     /**
      * Get command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpGet(argv) {
@@ -139,7 +139,7 @@ class Help {
 
     /**
      * Unset command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpUnset(argv) {
@@ -154,7 +154,7 @@ class Help {
 
     /**
      * Wait command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpWait(argv) {
@@ -170,7 +170,7 @@ class Help {
 
     /**
      * Touch command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpTouch(argv) {
@@ -185,7 +185,7 @@ class Help {
 
     /**
      * Start command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpStart(argv) {
@@ -201,7 +201,7 @@ class Help {
 
     /**
      * Stop command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpStop(argv) {
@@ -216,7 +216,7 @@ class Help {
 
     /**
      * Restart command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpRestart(argv) {
@@ -232,7 +232,7 @@ class Help {
 
     /**
      * Status command
-     * @param {object} argv             Minimist object
+     * @param {string[]} argv           Arguments
      * @return {Promise}
      */
     helpStatus(argv) {
