@@ -258,17 +258,22 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     wait(filename, timeout) {
-        return this.get(filename)
-            .then(result => {
-                let value = typeof result === 'undefined' ? null : result;
+        return Promise.all([
+                this.get(filename),
+                this.getAttr(filename, 'mtime')
+            ])
+            .then(([ result, mtime ]) => {
+                if (typeof result === 'undefined')
+                    result = null;
                 let info = this.waiting.get(filename);
-                if (info && !this.isEqual(info.value, value)) {
-                    this.notify(filename, value);
+                if (info && (!this.isEqual(info.value, result) || info.mtime !== mtime)) {
+                    this.notify(filename, result, mtime);
                     info = null;
                 }
                 if (!info) {
                     info = {
-                        value: value,
+                        value: result,
+                        mtime: mtime,
                         handlers: new Set(),
                     };
                     this.waiting.set(filename, info);
@@ -293,13 +298,14 @@ class Directory extends EventEmitter {
      * Notify about variable change
      * @param {string} filename                     Variable path
      * @param {*} value                             Variable value
+     * @param {number} mtime                        Variable mtime
      */
-    notify(filename, value) {
+    notify(filename, value, mtime) {
         if (typeof value === 'undefined')
             value = null;
 
         let waiting = this.waiting.get(filename);
-        if (!waiting || this.isEqual(waiting.value, value))
+        if (!waiting || (this.isEqual(waiting.value, value) && waiting.mtime === mtime))
             return;
 
         for (let cb of waiting.handlers)
@@ -337,8 +343,6 @@ class Directory extends EventEmitter {
 
                 return this._cacher.set(filename, value)
                     .then(() => {
-                        this.notify(filename, value);
-
                         this._filer.createDirectory(
                                 directory,
                                 { mode: this.dirMode, uid: this.user, gid: this.group }
@@ -396,7 +400,10 @@ class Directory extends EventEmitter {
                             })
                             .then(() => {
                                 let now = Math.round(Date.now() / 1000);
-                                return this.setAttr(filename, 'mtime', now);
+                                return this.setAttr(filename, 'mtime', now)
+                                    .then(() => {
+                                        this.notify(filename, value, now);
+                                    });
                             })
                             .catch(error => {
                                 this._logger.error(`FS error: ${error.message}`);
@@ -481,8 +488,6 @@ class Directory extends EventEmitter {
 
         return this._cacher.unset(filename)
             .then(() => {
-                this.notify(filename, null);
-
                 this._filer.createDirectory(
                         directory,
                         { mode: this.dirMode, uid: this.user, gid: this.group }
@@ -530,6 +535,10 @@ class Directory extends EventEmitter {
                             retry();
                         });
                     })
+                    .then(() => {
+                        let now = Math.round(Date.now() / 1000);
+                        this.notify(filename, null, now);
+                    })
                     .catch(error => {
                         this._logger.error(`FS error: ${error.message}`);
                     });
@@ -538,13 +547,21 @@ class Directory extends EventEmitter {
 
     /**
      * Signal variable change
-     * @param {string} event                        'update' or 'delete'
      * @param {string} filename                     Variable path
-     * @param {number} mtime                        Expected modification time
      * @return {Promise}
      */
-    touch(event, filename, mtime) {
-        return Promise.resolve();
+    touch(filename) {
+        let now = Math.round(Date.now() / 1000);
+        return this.setAttr(filename, 'mtime', now)
+            .then(() => {
+                let waiting = this.waiting.get(filename);
+                if (!waiting)
+                    return;
+
+                for (let cb of waiting.handlers)
+                    cb(false, waiting.value);
+                this.waiting.delete(filename);
+            });
     }
 
     /**

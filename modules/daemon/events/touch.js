@@ -69,11 +69,7 @@ class Touch {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this._cacher.unset(name)
-            .then(() => {
-                this.directory.notify(name);
-                return this.directory.touch(name)
-            })
+        this.directory.touch(name)
             .then(() => {
                reply(true);
             })

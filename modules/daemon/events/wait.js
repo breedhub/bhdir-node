@@ -82,14 +82,8 @@ class Wait {
         }
 
         this.directory.wait(name, timeout)
-            .then(timeout => {
-                if (timeout)
-                    return reply(true, null, true);
-
-                return this.directory.get(name)
-                    .then(result => {
-                        reply(true, result, false);
-                    });
+            .then(([ timeout, result ]) => {
+                reply(true, result, timeout);
             })
             .catch(error => {
                 reply(false, error.message);
