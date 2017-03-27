@@ -342,7 +342,7 @@ class Resilio extends EventEmitter {
                             promises.push(
                                 this._cacher.get(varName)
                                     .then(result => {
-                                        if (!result)
+                                        if (typeof result === 'undefined')
                                             return;
 
                                         return this._cacher.set(varName, json[key]);
