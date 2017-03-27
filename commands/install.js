@@ -154,24 +154,6 @@ class Install {
                 } catch (error) {
                     // do nothing
                 }
-
-                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configDir, 'bhdir.conf'), 'utf8'));
-                let rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
-                if (!rootDir)
-                    throw new Error('No root parameter in directory section of bhdir.conf');
-                let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
-                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
-
-                return Promise.all([
-                    this._runner.exec('chown', [ '-R', `${user}:${group}`, rootDir ]),
-                    this._runner.exec('chmod', [ '-R', 'ug+rwX', rootDir ]),
-                ]);
-            })
-            .then(([ chown, chmod ]) => {
-                if (chown.code !== 0)
-                    this._app.error('Could not chown root directory\n');
-                if (chmod.code !== 0)
-                    this._app.error('Could not chmod root directory\n');
             });
     }
 

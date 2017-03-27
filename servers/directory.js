@@ -258,8 +258,15 @@ class Directory extends EventEmitter {
             .then(() => {
                 return this._filer.createFile(
                     path.join(this.dataDir, '.bhdir.json'),
-                    { mode: this.fileMode, uid: this.user, gid: this.group }
+                    {mode: this.fileMode, uid: this.user, gid: this.group}
                 );
+            })
+            .then(() => {
+                if (this.user && this.group)
+                    return this._runner.exec('chown', [ '-R', `${this.user}:${this.group}`, this.rootDir ]);
+            })
+            .then(() => {
+                return this._runner.exec('chmod', [ '-R', 'ug+rwX', this.rootDir ]);
             })
             .then(() => {
                 this._logger.debug('directory', 'Starting the server');
