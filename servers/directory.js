@@ -159,37 +159,43 @@ class Directory extends EventEmitter {
                     .then(([ userInfo, groupInfo, syncUserInfo ]) => {
                         if (user.length && parseInt(user).toString() === user) {
                             this.user = parseInt(user);
+                            this.userName = null;
                         } else {
                             let userDb = userInfo.stdout.trim().split(':');
                             if (userInfo.code !== 0 || userDb.length !== 7) {
-                                this.user = null;
+                                this.userName = this.user = null;
                                 this._logger.error(`Directory user ${user} not found`);
                             } else {
                                 this.user = parseInt(userDb[2]);
+                                this.userName = user;
                             }
                         }
 
                         if (group.length && parseInt(group).toString() === group) {
                             this.group = parseInt(group);
+                            this.groupName = null;
                         } else {
                             let groupDb = groupInfo.stdout.trim().split(':');
                             if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                                this.group = null;
+                                this.groupName = this.group = null;
                                 this._logger.error(`Directory group ${group} not found`);
                             } else {
                                 this.group = parseInt(groupDb[2]);
+                                this.groupName = group;
                             }
                         }
 
                         if (syncUser.length && parseInt(syncUser).toString() === syncUser) {
                             this.syncUser = parseInt(syncUser);
+                            this.syncUserName = null;
                         } else {
                             let syncUserDb = syncUserInfo.stdout.trim().split(':');
                             if (syncUserInfo.code !== 0 || syncUserDb.length !== 7) {
-                                this.syncUser = null;
+                                this.syncUserName = this.syncUser = null;
                                 this._logger.error(`Resilio user ${syncUser} not found`);
                             } else {
                                 this.syncUser = parseInt(syncUserDb[2]);
+                                this.syncUserName = syncUser;
                             }
                         }
                     });
@@ -220,22 +226,22 @@ class Directory extends EventEmitter {
                 Promise.resolve()
             )
             .then(() => {
-                if (!this.group)
+                if (!this.groupName)
                     return;
 
                 if (os.platform() === 'freebsd')
-                    return this._runner.exec('pw', [ 'groupadd', this.group ]);
+                    return this._runner.exec('pw', [ 'groupadd', this.groupName ]);
 
-                return this._runner.exec('groupadd', [ this.group ]);
+                return this._runner.exec('groupadd', [ this.groupName ]);
             })
             .then(() => {
-                if (!this.group || !this.syncUser)
+                if (!this.groupName || !this.syncUserName)
                     return;
 
                 if (os.platform() === 'freebsd')
-                    return this._runner.exec('pw', [ 'groupmod', this.group, '-m', this.syncUser ]);
+                    return this._runner.exec('pw', [ 'groupmod', this.groupName, '-m', this.syncUserName ]);
 
-                return this._runner.exec('usermod', [ '-G', this.group, '-a', this.syncUser ]);
+                return this._runner.exec('usermod', [ '-G', this.groupName, '-a', this.syncUserName ]);
             })
             .then(() => {
                 return this._filer.createDirectory(
@@ -262,7 +268,7 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
-                if (this.user && this.group)
+                if (this.user !== null && this.group !== null)
                     return this._runner.exec('chown', [ '-R', `${this.user}:${this.group}`, this.rootDir ]);
             })
             .then(() => {
