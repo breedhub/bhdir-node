@@ -166,15 +166,14 @@ class State extends EventEmitter {
             updated: Math.round(Date.now() / 1000),
         };
 
-        try {
-            fs.writeFileSync(
+        this._filer.lockWrite(
                 path.join(this._directory.stateDir, this.sessionId + '.json'),
                 JSON.stringify(json, undefined, 4) + '\n',
                 { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
-            );
-        } catch (error) {
-            // do nothing
-        }
+            )
+            .catch(() => {
+                // do nothing
+            });
     }
 
     /**
