@@ -44,6 +44,9 @@ module.exports = {
         directory: {
             class: 'servers.directory',
         },
+        state: {
+            class: 'servers.state',
+        },
         resilio: {
             class: 'servers.resilio',
         },

@@ -100,8 +100,8 @@ class Directory extends EventEmitter {
                 if (!this.rootDir)
                     throw new Error('No root parameter in directory section of bhdir.conf');
 
-                this.updatesDir = path.join(this.rootDir, 'updates');
                 this.dataDir = path.join(this.rootDir, 'data');
+                this.stateDir = path.join(this.rootDir, 'state');
 
                 this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '770', 8);
                 if (isNaN(this.dirMode))
@@ -251,7 +251,7 @@ class Directory extends EventEmitter {
             })
             .then(() => {
                 return this._filer.createDirectory(
-                    this.updatesDir,
+                    this.stateDir,
                     { mode: this.dirMode, uid: this.user, gid: this.group }
                 )
             });
