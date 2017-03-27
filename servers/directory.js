@@ -761,8 +761,8 @@ class Directory extends EventEmitter {
         return this._cacher.unset(filename)
             .then(() => {
                 this._filer.createDirectory(
-                        directory,
-                        { mode: this.dirMode, uid: this.user, gid: this.group }
+                    directory,
+                    { mode: this.dirMode, uid: this.user, gid: this.group }
                     )
                     .then(() => {
                         try {
@@ -779,20 +779,20 @@ class Directory extends EventEmitter {
 
                                 let success = false;
                                 this._filer.lockUpdate(
-                                        path.join(directory, '.vars.json'),
-                                        contents => {
-                                            let json;
-                                            try {
-                                                json = JSON.parse(contents);
-                                            } catch (error) {
-                                                return Promise.resolve(contents);
-                                            }
+                                    path.join(directory, '.vars.json'),
+                                    contents => {
+                                        let json;
+                                        try {
+                                            json = JSON.parse(contents);
+                                        } catch (error) {
+                                            return Promise.resolve(contents);
+                                        }
 
-                                            success = true;
-                                            delete json[name];
-                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                        },
-                                        { mode: this.fileMode, uid: this.user, gid: this.group }
+                                        success = true;
+                                        delete json[name];
+                                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                    },
+                                    { mode: this.fileMode, uid: this.user, gid: this.group }
                                     )
                                     .then(() => {
                                         if (success)
@@ -818,6 +818,23 @@ class Directory extends EventEmitter {
                     })
                     .catch(error => {
                         this._logger.error(`FS error: ${error.message}`);
+                    });
+            });
+    }
+
+    /**
+     * Remove a branch
+     * @param {string} filename                     Branch path
+     * @return {Promise}
+     */
+    rm(filename) {
+        this._logger.debug('directory', `Removing ${filename}`);
+
+        return this.del(filename)
+            .then(() => {
+                return this._filer.remove(path.join(this.dataDir, filename))
+                    .catch(() => {
+                        // do nothing
                     });
             });
     }

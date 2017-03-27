@@ -67,6 +67,7 @@ class Help {
                 '\tset\t\tSet variable value\n' +
                 '\tget\t\tGet variable value\n' +
                 '\tdel\t\tDelete a variable\n' +
+                '\trm\t\tRemove a branch\n' +
                 '\twait\t\tWait for variable update\n' +
                 '\ttouch\t\tTrigger variable update\n' +
                 '\tset-attr\tSet attribute\n' +
@@ -167,6 +168,21 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl del <path> [-z <socket>]\n\n' +
                 '\tDelete a variable.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Rm command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpRm(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl rm <path> [-z <socket>]\n\n' +
+                '\tRemove a branch.\n'
             )
             .then(() => {
                 process.exit(0);

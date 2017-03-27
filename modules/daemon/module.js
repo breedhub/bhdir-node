@@ -67,6 +67,9 @@ class Daemon {
         let del = this._app.get('modules.daemon.events.del');
         server.on('del', del.handle.bind(del));
 
+        let rm = this._app.get('modules.daemon.events.rm');
+        server.on('rm', rm.handle.bind(rm));
+
         let wait = this._app.get('modules.daemon.events.wait');
         server.on('wait', wait.handle.bind(wait));
 

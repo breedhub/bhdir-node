@@ -311,6 +311,9 @@ class Daemon extends EventEmitter {
                 case 'del':
                     this.emit('del', id, message);
                     break;
+                case 'rm':
+                    this.emit('rm', id, message);
+                    break;
                 case 'wait':
                     this.emit('wait', id, message);
                     break;
