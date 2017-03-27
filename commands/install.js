@@ -172,21 +172,6 @@ class Install {
                     this._app.error('Could not chown root directory\n');
                 if (chmod.code !== 0)
                     this._app.error('Could not chmod root directory\n');
-
-                let request = {
-                    id: uuid.v1(),
-                    command: 'clear-cache',
-                };
-
-                return this.send(Buffer.from(JSON.stringify(request), 'utf8'), sockName)
-                    .then(reply => {
-                        let response = JSON.parse(reply.toString());
-                        if (response.id !== request.id)
-                            throw new Error('Invalid reply from daemon');
-
-                        if (!response.success)
-                            throw new Error(`Error: ${response.message}`);
-                    });
             });
     }
 
