@@ -73,7 +73,7 @@ class Help {
                 '\tset-attr\tSet attribute\n' +
                 '\tget-attr\tGet attribute\n' +
                 '\tdel-attr\tDelete attribute\n' +
-                '\tupload\tUpload a file\n' +
+                '\tupload\t\tUpload a file\n' +
                 '\tdownload\tDownload a file\n' +
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
