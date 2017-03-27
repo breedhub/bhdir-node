@@ -68,6 +68,9 @@ class Help {
                 '\tdel\t\tDelete a variable\n' +
                 '\twait\t\tWait for variable update\n' +
                 '\ttouch\t\tTrigger variable update\n' +
+                '\tset-attr\tSet attribute\n' +
+                '\tget-attr\tGet attribute\n' +
+                '\tdel-attr\tDelete attribute\n' +
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
                 '\trestart\t\tRestart the daemon\n' +
@@ -207,8 +210,8 @@ class Help {
      */
     helpGetAttr(argv) {
         return this._app.info(
-                'Usage:\tbhdirctl get-attr <path> <name>\n\n' +
-                '\tGet attribute value\n'
+                'Usage:\tbhdirctl get-attr <path> [<name>]\n\n' +
+                '\tGet attribute value. Returns all the attributes if no name provided\n'
             )
             .then(() => {
                 process.exit(0);

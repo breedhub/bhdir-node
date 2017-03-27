@@ -74,7 +74,13 @@ class GetAttr {
         if (!this.directory.validatePath(filename))
             return reply(false, 'Invalid path');
 
-        this.directory.getAttr(filename, name)
+        Promise.resolve()
+            .then(() => {
+                if (name)
+                    return this.directory.getAttr(filename, name);
+
+                return this.directory.get(filename);
+            })
             .then(result => {
                 reply(true, result);
             })

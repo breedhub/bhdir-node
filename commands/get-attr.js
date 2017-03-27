@@ -59,11 +59,11 @@ class GetAttr {
             })
             .run(argv);
 
-        if (args.targets.length < 3)
+        if (args.targets.length < 2)
             return this._help.helpGetAttr(argv);
 
         let getPath = args.targets[1];
-        let getName = args.targets[2];
+        let getName = args.targets.length >= 3 ? args.targets[2] : null;
 
         let request = {
             id: uuid.v1(),
@@ -83,7 +83,17 @@ class GetAttr {
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
-                return this._app.info(response.results[0] + '\n')
+                return Promise.resolve()
+                    .then(() => {
+                        if (getName) {
+                            return this._app.info(
+                                (typeof response.results[0] === 'object' ?
+                                    JSON.stringify(response.results[0]) :
+                                    response.results[0]) + '\n');
+                        }
+
+                        return this._app.info(JSON.stringify(response.results[0], undefined, 4) + '\n');
+                    })
                     .then(() => {
                         return response.results[0] === null ? 10 : 0;
                     });

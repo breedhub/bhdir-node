@@ -81,7 +81,11 @@ class Get {
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
-                return this._app.info(response.results[0] + '\n')
+                return this._app.info(
+                        (typeof response.results[0] === 'object' ?
+                            JSON.stringify(response.results[0]) :
+                            response.results[0]) + '\n'
+                    )
                     .then(() => {
                         return response.results[0] === null ? 10 : 0;
                     });
