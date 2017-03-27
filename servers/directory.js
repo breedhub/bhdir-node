@@ -431,8 +431,11 @@ class Directory extends EventEmitter {
             })
             .then(json => {
                 let result = {};
-                for (let key of Object.keys(json))
+                for (let key of Object.keys(json)) {
+                    if (!json[key])
+                        continue;
                     result[key] = json[key]['value'];
+                }
 
                 return result;
             });

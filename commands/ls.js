@@ -115,7 +115,9 @@ class Ls {
                     output = JSON.stringify(response.results[0], undefined, 4);
                 }
 
-                return this._app.info(output.trim() + '\n');
+                output = output.trim();
+                if (output.length)
+                    return this._app.info(output + '\n');
             })
             .then(() => {
                 process.exit(0);
