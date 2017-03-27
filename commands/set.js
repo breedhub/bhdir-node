@@ -106,12 +106,15 @@ class Set {
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
             .then(reply => {
                 let response = JSON.parse(reply.toString());
-                if (response.id !== request.id)
+                if (response.id !== request.id || !response.results.length)
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
+                return this._app.info(response.results[0] + '\n');
+            })
+            .then(() => {
                 process.exit(0);
             })
             .catch(error => {

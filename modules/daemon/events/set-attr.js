@@ -53,8 +53,13 @@ class SetAttr {
                 id: message.id,
                 success: success,
             };
-            if (!success)
+            if (success) {
+                reply.results = [
+                    value,
+                ];
+            } else {
                 reply.message = value;
+            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
             this._logger.debug('set', `Sending SET ATTR response`);
             this.daemon.send(id, data);
@@ -74,8 +79,8 @@ class SetAttr {
             return reply(false, 'Protected attribute');
 
         this.directory.setAttr(filename, name, value)
-            .then(() => {
-                reply(true);
+            .then(id => {
+                reply(true, id);
             })
             .catch(error => {
                 reply(false, error.message);

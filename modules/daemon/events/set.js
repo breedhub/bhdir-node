@@ -53,8 +53,13 @@ class Set {
                 id: message.id,
                 success: success,
             };
-            if (!success)
+            if (success) {
+                reply.results = [
+                    value,
+                ];
+            } else {
                 reply.message = value;
+            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
             this._logger.debug('set', `Sending SET response`);
             this.daemon.send(id, data);
@@ -68,9 +73,9 @@ class Set {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.set(name, value)
-            .then(() => {
-                reply(true);
+        this.directory.set(name, null, value)
+            .then(id => {
+                reply(true, id);
             })
             .catch(error => {
                 reply(false, error.message);

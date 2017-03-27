@@ -371,8 +371,10 @@ class Directory extends EventEmitter {
                                     .then(() => {
                                         let promises = [];
                                         let files = fs.readdirSync(dir);
-                                        for (let file of files)
-                                            promises.push(upgradeDir(path.join(dir, file)));
+                                        for (let file of files) {
+                                            if (file[0] !== '.')
+                                                promises.push(upgradeDir(path.join(dir, file)));
+                                        }
 
                                         if (promises.length)
                                             return Promise.all(promises);
@@ -388,6 +390,20 @@ class Directory extends EventEmitter {
 
                         return new Promise(resolve => {
                                 setTimeout(resolve, 10 * 1000);
+                            })
+                            .then(() => {
+                                return this._filer.lockRead(path.join(this.dataDir, '.bhdir.json'))
+                                    .then(contents => {
+                                        let json = JSON.parse(contents);
+                                        if (json.directory.upgrading !== this._state.sessionId) {
+                                            return this._app.info(
+                                                'Directory is being upgraded by other daemon - restarting...\n',
+                                                () => {
+                                                    process.exit(200);
+                                                }
+                                            );
+                                        }
+                                    });
                             })
                             .then(() => {
                                 return upgradeDir(this.dataDir);
@@ -417,7 +433,7 @@ class Directory extends EventEmitter {
                         return this._filer.lockRead(path.join(this.dataDir, '.bhdir.json'))
                             .then(contents => {
                                 let json = JSON.parse(contents);
-                                if (json.directory.upgrading && json.directory.upgrading !== this._state.sessionId) {
+                                if (json.directory.upgrading) {
                                     return this._app.info(
                                         'Directory is being upgraded by other daemon - restarting...\n',
                                         () => { process.exit(200); }
@@ -446,19 +462,19 @@ class Directory extends EventEmitter {
     }
 
     /**
-     * Compare two variables
-     * @param {*} var1                              First
-     * @param {*} var2                              Second
+     * Compare two values
+     * @param {*} val1                              First
+     * @param {*} val2                              Second
      * @return {boolean}
      */
-    isEqual(var1, var2) {
-        if (typeof var1 !== typeof var2)
+    isEqual(val1, val2) {
+        if (typeof val1 !== typeof val2)
             return false;
 
-        if (typeof var1 === 'object')
-            return JSON.stringify(var1) === JSON.stringify(var2);
+        if (typeof val1 === 'object')
+            return JSON.stringify(val1) === JSON.stringify(val2);
 
-        return var1 === var2;
+        return val1 === val2;
     }
 
     /**
@@ -468,25 +484,23 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     wait(filename, timeout) {
-        return Promise.all([
-                this.get(filename),
-                this.getAttr(filename, 'mtime')
-            ])
-            .then(([ result, mtime ]) => {
-                if (typeof result === 'undefined')
-                    result = null;
-                let info = this.waiting.get(filename);
-                if (info && (!this.isEqual(info.value, result) || info.mtime !== mtime)) {
-                    this.notify(filename, result, mtime);
-                    info = null;
-                }
+        return this.get(filename)
+            .then(info => {
                 if (!info) {
                     info = {
-                        value: result,
-                        mtime: mtime,
-                        handlers: new Set(),
+                        value: null,
+                        mtime: 0,
                     };
-                    this.waiting.set(filename, info);
+                }
+                let waiting = this.waiting.get(filename);
+                if (waiting && (!this.isEqual(waiting.value, info.value) || waiting.mtime !== info.mtime)) {
+                    this.notify(filename, info);
+                    waiting = null;
+                }
+                if (!waiting) {
+                    waiting = info;
+                    waiting.handlers = new Set();
+                    this.waiting.set(filename, waiting);
                 }
 
                 return new Promise((resolve) => {
@@ -496,7 +510,7 @@ class Directory extends EventEmitter {
                     };
                     info.handlers.add(cb);
                     if (timeout)
-                        setTimeout(() => { cb(true, result); }, timeout);
+                        setTimeout(() => { cb(true, info.value); }, timeout);
                 });
             })
             .catch(error => {
@@ -507,47 +521,52 @@ class Directory extends EventEmitter {
     /**
      * Notify about variable change
      * @param {string} filename                     Variable path
-     * @param {*} value                             Variable value
-     * @param {number} mtime                        Variable mtime
+     * @param {object} info                         Variable
      */
-    notify(filename, value, mtime) {
-        if (typeof value === 'undefined')
-            value = null;
-
+    notify(filename, info) {
         let waiting = this.waiting.get(filename);
-        if (!waiting || (this.isEqual(waiting.value, value) && waiting.mtime === mtime))
+        if (!waiting || (this.isEqual(waiting.value, info.value) && waiting.mtime === info.mtime))
             return;
 
         for (let cb of waiting.handlers)
-            cb(false, value);
+            cb(false, info.value);
         this.waiting.delete(filename);
     }
 
     /**
      * Set variable
      * @param {string} filename                     Variable path
-     * @param {*} value                             Variable value
-     * @return {Promise}
+     * @param {object} [info]                       Variable
+     * @param {*} [value]                           Variable value if info is omitted
+     * @return {Promise}                            Resolves to history id
      */
-    set(filename, value) {
+    set(filename, info, value) {
         this._logger.debug('directory', `Setting ${filename}`);
-
-        if (value === null) {
-            this._logger.error(`Could not set ${filename} to null`);
-            return Promise.resolve();
-        }
 
         let name = path.basename(filename);
         let directory = path.join(this.dataDir, path.dirname(filename));
 
-        return this.get(filename)
-            .then(result => {
-                if (this.isEqual(result, value))
-                    return;
+        return this.get(filename, false)
+            .then(old => {
+                if (old && (typeof value !== 'undefined') && this.isEqual(old.value, value))
+                    return null;
 
-                return this._cacher.set(filename, value)
+                if (!info)
+                    info = old;
+                if (!info)
+                    info = {};
+
+                info.mtime = Math.round(Date.now() / 1000);
+                if (!info.ctime)
+                    info.ctime = info.mtime;
+                if (!info.id)
+                    info.id = uuid.v4();
+                if (typeof value !== 'undefined')
+                    info.value = value;
+
+                return this._cacher.set(filename, info)
                     .then(() => {
-                        this._filer.createDirectory(
+                        return this._filer.createDirectory(
                                 directory,
                                 { mode: this.dirMode, uid: this.user, gid: this.group }
                             )
@@ -580,7 +599,7 @@ class Directory extends EventEmitter {
                                                 }
 
                                                 success = true;
-                                                json[name] = value;
+                                                json[name] = info;
                                                 return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                             },
                                             { mode: this.fileMode, uid: this.user, gid: this.group }
@@ -599,13 +618,11 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(() => {
-                                return this.addHistory(filename, value)
-                                    .then(mtime => {
-                                        return this.setAttr(filename, 'mtime', mtime)
-                                            .then(() => {
-                                                this.notify(filename, value, mtime);
-                                            });
-                                    })
+                                return this.addHistory(filename, info);
+                            })
+                            .then(id => {
+                                this.notify(filename, info);
+                                return id;
                             })
                             .catch(error => {
                                 this._logger.error(`FS error: ${error.message}`);
@@ -617,18 +634,19 @@ class Directory extends EventEmitter {
     /**
      * Get variable
      * @param {string} filename                     Variable path
+     * @param {boolean} [cacheResult=true]          Cache result
      * @return {Promise}
      */
-    get(filename) {
+    get(filename, cacheResult = true) {
         this._logger.debug('directory', `Getting ${filename}`);
 
         let name = path.basename(filename);
         let directory = path.join(this.dataDir, path.dirname(filename));
 
         return this._cacher.get(filename)
-            .then(result => {
-                if (typeof result !== 'undefined')
-                    return result;
+            .then(info => {
+                if (typeof info !== 'undefined')
+                    return info;
 
                 let exists;
                 try {
@@ -669,6 +687,9 @@ class Directory extends EventEmitter {
                         });
                     })
                     .then(json => {
+                        if (!cacheResult)
+                            return json[name];
+
                         return this._cacher.set(filename, typeof json[name] === 'undefined' ? null : json[name])
                             .then(() => {
                                 return json[name];
@@ -738,8 +759,13 @@ class Directory extends EventEmitter {
                         });
                     })
                     .then(() => {
-                        let now = Math.round(Date.now() / 1000);
-                        this.notify(filename, null, now);
+                        return this._filer.remove(path.join(filename, '.history'))
+                            .catch(() => {
+                                // do nothing
+                            });
+                    })
+                    .then(() => {
+                        this.notify(filename, { value: null, mtime: Math.round(Date.now() / 1000) });
                     })
                     .catch(error => {
                         this._logger.error(`FS error: ${error.message}`);
@@ -753,17 +779,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     touch(filename) {
-        let now = Math.round(Date.now() / 1000);
-        return this.setAttr(filename, 'mtime', now)
-            .then(() => {
-                let waiting = this.waiting.get(filename);
-                if (!waiting)
-                    return;
-
-                for (let cb of waiting.handlers)
-                    cb(false, waiting.value);
-                this.waiting.delete(filename);
-            });
+        return this.setAttr(filename, 'mtime', Math.round(Date.now() / 1000));
     }
 
     /**
@@ -771,69 +787,18 @@ class Directory extends EventEmitter {
      * @param {string} filename                     Variable path
      * @param {*} name                              Attribute name
      * @param {*} value                             Attribute value
-     * @return {Promise}
+     * @return {Promise}                            Resolves to history id
      */
     setAttr(filename, name, value) {
         this._logger.debug('directory', `Setting attribute ${name} of ${filename}`);
 
-        if (value === null) {
-            this._logger.error(`Could not set attribute ${name} of ${filename} to null`);
-            return Promise.resolve();
-        }
+        return this.get(filename, false)
+            .then(info => {
+                if (!info)
+                    return null;
 
-        return this._filer.createDirectory(
-                path.join(this.dataDir, filename),
-                { mode: this.dirMode, uid: this.user, gid: this.group }
-            )
-            .then(() => {
-                let exists;
-                try {
-                    fs.accessSync(path.join(this.dataDir, filename, '.attrs.json'), fs.constants.F_OK);
-                    exists = true;
-                } catch (error) {
-                    exists = false;
-                }
-
-                return new Promise((resolve, reject) => {
-                    let tries = 0;
-                    let retry = () => {
-                        if (++tries > this.constructor.dataRetryMax)
-                            return reject(new Error(`Max retries reached while setting attribute ${name} of ${filename}`));
-
-                        let success = false;
-                        this._filer.lockUpdate(
-                                path.join(this.dataDir, filename, '.attrs.json'),
-                                contents => {
-                                    let json;
-                                    try {
-                                        json = JSON.parse(contents);
-                                    } catch (error) {
-                                        if (exists)
-                                            return Promise.resolve(contents);
-                                        json = {};
-                                    }
-
-                                    this._initAttrs(json);
-
-                                    success = true;
-                                    json[name] = value;
-
-                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                },
-                                { mode: this.fileMode, uid: this.user, gid: this.group }
-                            )
-                            .then(() => {
-                                if (success)
-                                    return resolve();
-
-                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                            })
-                            .catch(error => {
-                                reject(error);
-                            });
-                    };
-                    retry();
-                });
+                info[name] = value;
+                return this.set(filename, info);
             });
     }
 
@@ -846,46 +811,12 @@ class Directory extends EventEmitter {
     getAttr(filename, name) {
         this._logger.debug('directory', `Getting attribute ${name} of ${filename}`);
 
-        let exists;
-        try {
-            fs.accessSync(path.join(this.dataDir, filename, '.attrs.json'), fs.constants.F_OK);
-            exists = true;
-        } catch (error) {
-            exists = false;
-        }
+        return this.get(filename)
+            .then(info => {
+                if (!info)
+                    return null;
 
-        return Promise.resolve()
-            .then(() => {
-                if (!exists)
-                    return {};
-
-                return new Promise((resolve, reject) => {
-                    let tries = 0;
-                    let retry = () => {
-                        if (++tries > this.constructor.dataRetryMax)
-                            return reject(new Error(`Max retries reached while getting attribute ${name} of ${filename}`));
-
-                        this._filer.lockRead(path.join(this.dataDir, filename, '.attrs.json'))
-                            .then(contents => {
-                                let json;
-                                try {
-                                    json = JSON.parse(contents);
-                                } catch (error) {
-                                    setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                    return;
-                                }
-
-                                resolve(json);
-                            })
-                            .catch(error => {
-                                reject(error);
-                            });
-                    };
-                    retry();
-                });
-            })
-            .then(json => {
-                return typeof json[name] === 'undefined' ? null : json[name];
+                return typeof info[name] === 'undefined' ? null : info[name];
             });
     }
 
@@ -898,64 +829,23 @@ class Directory extends EventEmitter {
     delAttr(filename, name) {
         this._logger.debug('directory', `Deleting attribute ${name} of ${filename}`);
 
-        return this._filer.createDirectory(
-                path.join(this.dataDir, filename),
-                { mode: this.dirMode, uid: this.user, gid: this.group }
-            )
-            .then(() => {
-                try {
-                    fs.accessSync(path.join(this.dataDir, filename, '.attrs.json'), fs.constants.F_OK);
-                } catch (error) {
-                    return;
-                }
+        return this.get(filename)
+            .then(info => {
+                if (!info)
+                    return null;
 
-                return new Promise((resolve, reject) => {
-                    let tries = 0;
-                    let retry = () => {
-                        if (++tries > this.constructor.dataRetryMax)
-                            return reject(new Error(`Max retries reached while deleting attribute ${name} of ${filename}`));
-
-                        let success = false;
-                        this._filer.lockUpdate(
-                                path.join(this.dataDir, filename, '.attrs.json'),
-                                contents => {
-                                    let json;
-                                    try {
-                                        json = JSON.parse(contents);
-                                    } catch (error) {
-                                        return Promise.resolve(contents);
-                                    }
-
-                                    this._initAttrs(json);
-
-                                    success = true;
-                                    delete json[name];
-                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                },
-                                { mode: this.fileMode, uid: this.user, gid: this.group }
-                            )
-                            .then(() => {
-                                if (success)
-                                    return resolve();
-
-                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                            })
-                            .catch(error => {
-                                reject(error);
-                            });
-                    };
-                    retry();
-                });
+                delete info[name];
+                return this.set(filename, info);
             });
     }
 
     /**
      * Add history record
      * @param {string} filename                     Variable path
-     * @param {*} value                             New value
-     * @return {Promise}                            Resolves to mtime
+     * @param {object} info                         Variable
+     * @return {Promise}                            Resolves to id
      */
-    addHistory(filename, value) {
+    addHistory(filename, info) {
         this._logger.debug('directory', `Adding to history of ${filename}`);
 
         let now = new Date();
@@ -973,7 +863,7 @@ class Directory extends EventEmitter {
         let json = {
             id: uuid.v4(),
             mtime: mtime,
-            value: value,
+            variable: info,
         };
 
         return this._filer.createDirectory(
@@ -1006,7 +896,7 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
-                return mtime;
+                return json.id;
             });
     }
 

@@ -74,7 +74,7 @@ class Get {
 
         this.directory.get(name)
             .then(result => {
-                reply(true, typeof result === 'undefined' ? null : result);
+                reply(true, result.value || null);
             })
             .catch(error => {
                 reply(false, error.message);

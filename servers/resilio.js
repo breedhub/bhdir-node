@@ -290,7 +290,7 @@ class Resilio extends EventEmitter {
         };
 
         if (!this.log.length)
-            exit();
+            return exit();
 
         let str = this.log.toString('utf8');
         this.log = new Buffer(0);
@@ -310,8 +310,6 @@ class Resilio extends EventEmitter {
                 continue;
             if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.vars.json'))
                 file = path.dirname(result[1]);
-            if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.attrs.json'))
-                file = path.dirname(path.dirname(result[1]));
 
             if (file && files.indexOf(file) === -1) {
                 this._logger.info(`Path updated: ${file}`);
@@ -319,73 +317,42 @@ class Resilio extends EventEmitter {
             }
         }
 
-        let updates = {};
-
         let promises = [];
-        for (let file of files) {
-            promises.push(
-                this._filer.lockRead(path.join(file, '.vars.json'))
-                    .then(contents => {
-                        let json;
-                        try {
-                            json = JSON.parse(contents);
-                        } catch (error) {
-                            return;
-                        }
+        for (let file of files)
+            promises.push(this._filer.lockRead(path.join(file, '.vars.json')));
 
-                        updates[file] = {
-                            path: file,
-                            vars: json,
-                            attrs: {},
-                        };
-
-                        let attrPromises = [];
-                        for (let name of Object.keys(json)) {
-                            attrPromises.push(
-                                this._filer.lockRead(path.join(file, '.vars.json'))
-                                    .then(contents => {
-                                            let json;
-                                            try {
-                                                json = JSON.parse(contents);
-                                            } catch (error) {
-                                                return;
-                                            }
-
-                                            updates[file]['attrs'][name] = json;
-                                        })
-                            );
-                        }
-
-                        if (attrPromises.length)
-                            return Promise.all(attrPromises);
-                    })
-            );
-        }
+        if (!promises.length)
+            return exit();
 
         Promise.all(promises)
-            .then(() => {
+            .then(results => {
                 promises = [];
-                for (let update of Object.keys(updates)) {
-                    (update => {
-                        let directory = update.path.substring(this._directory.dataDir.length);
-                        for (let key of Object.keys(updates.vars)) {
+                for (let i = 0; i < files.length; i++) {
+                    let json;
+                    try {
+                        json = JSON.parse(results[i]);
+                    } catch (error) {
+                        continue;
+                    }
+
+                    for (let key of Object.keys(json)) {
+                        ((file, key, json) => {
+                            let directory = file.substring(this._directory.dataDir.length);
                             let varName = path.join(directory, key);
-                            let varValue = update.vars[key];
-                            let varTime = update.attrs[key]['attrs']['mtime'] || 0;
                             promises.push(
                                 this._cacher.get(varName)
                                     .then(result => {
-                                        if (typeof result === 'undefined' || this._directory.isEqual(result, varValue))
+                                        if (!result)
                                             return;
 
-                                        return this._cacher.set(varName, varValue);
+                                        this._cacher.set(varName, json[key]);
                                     })
                                     .then(() => {
-                                        this._directory.notify(varName, varValue, varTime);
+                                        this._directory.notify(varName, json[key]);
                                     })
                             );
-                        }
-                    })(update);
+                        })(files[i], key, json);
+                    }
                 }
 
                 if (promises.length)
