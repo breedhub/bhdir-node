@@ -345,7 +345,7 @@ class Resilio extends EventEmitter {
                                         if (!result)
                                             return;
 
-                                        this._cacher.set(varName, json[key]);
+                                        return this._cacher.set(varName, json[key]);
                                     })
                                     .then(() => {
                                         this._directory.notify(varName, json[key]);

@@ -373,6 +373,13 @@ class Directory extends EventEmitter {
      * @param {object} info                         Variable
      */
     notify(filename, info) {
+        if (!info) {
+            info = {
+                value: null,
+                mtime: 0,
+            };
+        }
+
         let waiting = this.waiting.get(filename);
         if (!waiting || (this.isEqual(waiting.value, info.value) && waiting.mtime === info.mtime))
             return;
