@@ -268,17 +268,17 @@ class Directory extends EventEmitter {
                     .then(contents => {
                         let json = JSON.parse(contents);
                         if (json.directory.upgrading) {
-                            return this._app.info(
-                                'Directory is being upgraded - restarting...\n',
-                                () => { process.exit(200); }
-                            );
+                            return this._app.info('Directory is being upgraded - restarting...\n')
+                                .then(() => {
+                                    process.exit(200);
+                                });
                         }
                     })
                     .catch(() => {
-                        return this._app.error(
-                            'Could not read .bhdir.json - restarting...\n',
-                            () => { process.exit(200); }
-                        );
+                        return this._app.info('Could not read .bhdir.json - restarting...\n')
+                            .then(() => {
+                                process.exit(200);
+                            });
                     })
             });
     }
