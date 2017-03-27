@@ -151,51 +151,66 @@ class Directory extends EventEmitter {
                         });
                 }
 
-                return Promise.all([
-                        this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
-                        this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
-                        this._runner.exec('grep', [ '-E', `^${syncUser}:`, '/etc/passwd' ]),
-                    ])
+                return Promise.resolve()
+                    .then(() => {
+                        if (!group)
+                            return;
+
+                        if (os.platform() === 'freebsd')
+                            return this._runner.exec('pw', [ 'groupadd', group ]);
+
+                        return this._runner.exec('groupadd', [ group ]);
+                    })
+                    .then(() => {
+                        if (!this.group || !this.syncUser)
+                            return;
+
+                        if (os.platform() === 'freebsd')
+                            return this._runner.exec('pw', [ 'groupmod', group, '-m', syncUser ]);
+
+                        return this._runner.exec('usermod', [ '-G', group, '-a', syncUser ]);
+                    })
+                    .then(() => {
+                        return Promise.all([
+                            this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
+                            this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
+                            this._runner.exec('grep', [ '-E', `^${syncUser}:`, '/etc/passwd' ]),
+                        ]);
+                    })
                     .then(([ userInfo, groupInfo, syncUserInfo ]) => {
                         if (user.length && parseInt(user).toString() === user) {
                             this.user = parseInt(user);
-                            this.userName = null;
                         } else {
                             let userDb = userInfo.stdout.trim().split(':');
                             if (userInfo.code !== 0 || userDb.length !== 7) {
-                                this.userName = this.user = null;
+                                this.user = null;
                                 this._logger.error(`Directory user ${user} not found`);
                             } else {
                                 this.user = parseInt(userDb[2]);
-                                this.userName = user;
                             }
                         }
 
                         if (group.length && parseInt(group).toString() === group) {
                             this.group = parseInt(group);
-                            this.groupName = null;
                         } else {
                             let groupDb = groupInfo.stdout.trim().split(':');
                             if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                                this.groupName = this.group = null;
+                                this.group = null;
                                 this._logger.error(`Directory group ${group} not found`);
                             } else {
                                 this.group = parseInt(groupDb[2]);
-                                this.groupName = group;
                             }
                         }
 
                         if (syncUser.length && parseInt(syncUser).toString() === syncUser) {
                             this.syncUser = parseInt(syncUser);
-                            this.syncUserName = null;
                         } else {
                             let syncUserDb = syncUserInfo.stdout.trim().split(':');
                             if (syncUserInfo.code !== 0 || syncUserDb.length !== 7) {
-                                this.syncUserName = this.syncUser = null;
+                                this.syncUser = null;
                                 this._logger.error(`Resilio user ${syncUser} not found`);
                             } else {
                                 this.syncUser = parseInt(syncUserDb[2]);
-                                this.syncUserName = syncUser;
                             }
                         }
                     });
@@ -225,24 +240,6 @@ class Directory extends EventEmitter {
                 },
                 Promise.resolve()
             )
-            .then(() => {
-                if (!this.groupName)
-                    return;
-
-                if (os.platform() === 'freebsd')
-                    return this._runner.exec('pw', [ 'groupadd', this.groupName ]);
-
-                return this._runner.exec('groupadd', [ this.groupName ]);
-            })
-            .then(() => {
-                if (!this.groupName || !this.syncUserName)
-                    return;
-
-                if (os.platform() === 'freebsd')
-                    return this._runner.exec('pw', [ 'groupmod', this.groupName, '-m', this.syncUserName ]);
-
-                return this._runner.exec('usermod', [ '-G', this.groupName, '-a', this.syncUserName ]);
-            })
             .then(() => {
                 return this._filer.createDirectory(
                     this.rootDir,
