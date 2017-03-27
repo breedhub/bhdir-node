@@ -1,6 +1,6 @@
 {
   "name": "bhdir-dev",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Breedhub Directory",
   "license": "MIT",
   "author": "Ross Basarevych <basarevych@gmail.com>",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "argv": "~0.0.2",
-    "arpen": "~0.0.9",
+    "arpen": "~0.0.10",
     "daemon": "~1.1.0",
     "easy-table": "^1.0.0",
     "fs-ext": "~0.6.0",
