@@ -338,7 +338,7 @@ class Resilio extends EventEmitter {
                     for (let key of Object.keys(json)) {
                         ((file, key, json) => {
                             let directory = file.substring(this._directory.dataDir.length);
-                            let varName = path.join(directory, key);
+                            let varName = path.join(directory || '/', key);
                             promises.push(
                                 this._cacher.get(varName)
                                     .then(result => {

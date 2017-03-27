@@ -638,7 +638,7 @@ class Directory extends EventEmitter {
                                         }
 
                                         success = true;
-                                        delete json[name];
+                                        json[name] = null;
                                         return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                     },
                                     { mode: this.fileMode, uid: this.user, gid: this.group }
