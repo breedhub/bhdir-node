@@ -63,6 +63,7 @@ class Help {
                 'Commands:\n' +
                 '\thelp\t\tPrint help about any other command\n' +
                 '\tinstall\t\tRegister the program in the system\n' +
+                '\tls\t\tList variables of a path\n' +
                 '\tset\t\tSet variable value\n' +
                 '\tget\t\tGet variable value\n' +
                 '\tdel\t\tDelete a variable\n' +
@@ -106,6 +107,21 @@ class Help {
                 'Usage:\tbhdirctl install\n\n' +
                 '\tThis command will register the program in the system\n' +
                 '\tand will create configuration in /etc/bhid by default\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Ls command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpLs(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl ls <path> [-o table|json] [-n] [-z <socket>]\n\n' +
+                '\tList variables of a path. By default table formatting is used. When formatting is table -n disables header\n'
             )
             .then(() => {
                 process.exit(0);

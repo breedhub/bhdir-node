@@ -55,6 +55,9 @@ class Daemon {
 
         let server = this._app.get('servers').get('daemon');
 
+        let ls = this._app.get('modules.daemon.events.ls');
+        server.on('ls', ls.handle.bind(ls));
+
         let set = this._app.get('modules.daemon.events.set');
         server.on('set', set.handle.bind(set));
 

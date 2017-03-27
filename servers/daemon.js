@@ -299,6 +299,9 @@ class Daemon extends EventEmitter {
         try {
             this._logger.debug('daemon', `Client message ${message.command}`);
             switch(message.command) {
+                case 'ls':
+                    this.emit('ls', id, message);
+                    break;
                 case 'set':
                     this.emit('set', id, message);
                     break;

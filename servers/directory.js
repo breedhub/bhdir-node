@@ -534,6 +534,55 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * List variables
+     * @param {string} filename                     Variable path
+     * @return {Promise}
+     */
+    ls(filename) {
+        this._logger.debug('directory', `Listing ${filename}`);
+
+        let directory = path.join(this.dataDir, filename);
+
+        try {
+            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+        } catch (error) {
+            return Promise.resolve({});
+        }
+
+        return new Promise((resolve, reject) => {
+                let tries = 0;
+                let retry = () => {
+                    if (++tries > this.constructor.dataRetryMax)
+                        return reject(new Error(`Max retries reached while getting ${filename}`));
+
+                    this._filer.lockRead(path.join(directory, '.vars.json'))
+                        .then(contents => {
+                            let json;
+                            try {
+                                json = JSON.parse(contents);
+                            } catch (error) {
+                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                return;
+                            }
+
+                            resolve(json);
+                        })
+                        .catch(error => {
+                            reject(error);
+                        });
+                };
+                retry();
+            })
+            .then(json => {
+                let result = {};
+                for (let key of Object.keys(json))
+                    result[key] = json[key]['value'];
+
+                return result;
+            });
+    }
+
+    /**
      * Set variable
      * @param {string} filename                     Variable path
      * @param {object} [info]                       Variable

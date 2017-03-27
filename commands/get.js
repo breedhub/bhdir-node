@@ -75,7 +75,7 @@ class Get {
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
             .then(reply => {
                 let response = JSON.parse(reply.toString());
-                if (response.id !== request.id || !response.results.length)
+                if (response.id !== request.id)
                     throw new Error('Invalid reply from daemon');
 
                 if (!response.success)

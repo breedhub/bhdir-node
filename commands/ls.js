@@ -1,17 +1,18 @@
 /**
- * Set command
- * @module commands/set
+ * Ls command
+ * @module commands/ls
  */
 const path = require('path');
 const net = require('net');
 const uuid = require('uuid');
 const argvParser = require('argv');
 const SocketWrapper = require('socket-wrapper');
+const Table = require('easy-table');
 
 /**
  * Command class
  */
-class Set {
+class Ls {
     /**
      * Create the service
      * @param {App} app                 The application
@@ -25,11 +26,11 @@ class Set {
     }
 
     /**
-     * Service name is 'commands.set'
+     * Service name is 'commands.ls'
      * @type {string}
      */
     static get provides() {
-        return 'commands.set';
+        return 'commands.ls';
     }
 
     /**
@@ -53,9 +54,14 @@ class Set {
                 type: 'boolean',
             })
             .option({
-                name: 'type',
-                short: 't',
+                name: 'output',
+                short: 'o',
                 type: 'string',
+            })
+            .option({
+                name: 'no-header',
+                short: 'n',
+                type: 'boolean',
             })
             .option({
                 name: 'socket',
@@ -64,42 +70,16 @@ class Set {
             })
             .run(argv);
 
-        if (args.targets.length < 3)
-            return this._help.helpSet(argv);
+        if (args.targets.length < 2)
+            return this._help.helpGet(argv);
 
-        let setPath = args.targets[1];
-        let setValue = args.targets[2];
-
-        switch (args.options['type'] || 'string') {
-            case 'string':
-                break;
-            case 'number':
-                try {
-                    setValue = parseFloat(setValue);
-                } catch (error) {
-                    this.error(`Could not parse number: ${error.message}`);
-                }
-                break;
-            case 'boolean':
-                setValue = (setValue.toLowerCase() === 'true');
-                break;
-            case 'json':
-                try {
-                    setValue = JSON.parse(setValue);
-                } catch (error) {
-                    this.error(`Could not parse JSON: ${error.message}`);
-                }
-                break;
-            default:
-                this.error('Invalid type');
-        }
+        let lsPath = args.targets[1];
 
         let request = {
             id: uuid.v1(),
-            command: 'set',
+            command: 'ls',
             args: [
-                setPath,
-                setValue
+                lsPath,
             ]
         };
 
@@ -112,7 +92,30 @@ class Set {
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
-                return this._app.info(response.results[0] + '\n');
+                let output = '';
+                if ((args.options['output'] || 'table') === 'table') {
+                    if (args.options['no-header']) {
+                        for (let key of Object.keys(response.results[0])) {
+                            output += key + ' ' + (typeof response.results[0][key] === 'object' ?
+                                JSON.stringify(response.results[0][key]) :
+                                response.results[0][key]) + '\n';
+                        }
+                    } else {
+                        let table = new Table();
+                        for (let key of Object.keys(response.results[0])) {
+                            table.cell('Name', key);
+                            table.cell('Value', (typeof response.results[0][key] === 'object' ?
+                                JSON.stringify(response.results[0][key]) :
+                                response.results[0][key]));
+                            table.newRow();
+                        }
+                        output = table.toString();
+                    }
+                } else {
+                    output = JSON.stringify(response.results[0], undefined, 4);
+                }
+
+                return this._app.info(output.trim() + '\n');
             })
             .then(() => {
                 process.exit(0);
@@ -177,4 +180,4 @@ class Set {
     }
 }
 
-module.exports = Set;
+module.exports = Ls;
