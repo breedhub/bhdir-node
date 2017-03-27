@@ -113,7 +113,7 @@ class Directory extends EventEmitter {
                 let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
                 let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
-                let syncUser = (bhdirConfig.resilio && bhdirConfig.resilio.user) || 'root';
+                let syncUser = bhdirConfig.resilio && bhdirConfig.resilio.user;
                 this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
 
                 let updateConf = false;
