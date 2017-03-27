@@ -169,7 +169,8 @@ class State extends EventEmitter {
         try {
             fs.writeFileSync(
                 path.join(this._directory.stateDir, this.sessionId + '.json'),
-                JSON.stringify(json, undefined, 4) + '\n'
+                JSON.stringify(json, undefined, 4) + '\n',
+                { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
             );
         } catch (error) {
             // do nothing
