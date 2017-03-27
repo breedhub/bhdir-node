@@ -74,7 +74,7 @@ class Get {
 
         this.directory.get(name)
             .then(result => {
-                reply(true, result.value || null);
+                reply(true, result ? result.value : null);
             })
             .catch(error => {
                 reply(false, error.message);
