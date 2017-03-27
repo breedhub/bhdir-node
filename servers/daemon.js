@@ -329,6 +329,12 @@ class Daemon extends EventEmitter {
                 case 'del-attr':
                     this.emit('del_attr', id, message);
                     break;
+                case 'upload':
+                    this.emit('upload', id, message);
+                    break;
+                case 'download':
+                    this.emit('download', id, message);
+                    break;
                 case 'clear-cache':
                     this.emit('clear_cache', id, message);
                     break;

@@ -967,6 +967,123 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Upload a file
+     * @param {string} filename                     Variable path
+     * @param {Buffer} buffer                       File
+     * @return {Promise}
+     */
+    upload(filename, buffer) {
+        this._logger.debug('directory', `Uploading to ${filename}`);
+
+        let now = new Date();
+        let mtime = Math.round(now.getTime() / 1000);
+        let directory = path.join(
+            this.dataDir,
+            filename,
+            '.files',
+            now.getUTCFullYear().toString(),
+            this._padNumber(now.getUTCMonth() + 1, 2),
+            this._padNumber(now.getUTCDate(), 2),
+            this._padNumber(now.getUTCHours(), 2)
+        );
+
+        return this._filer.createDirectory(
+            directory,
+            { mode: this.dirMode, uid: this.user, gid: this.group }
+            )
+            .then(() => {
+                let name;
+                let files = fs.readdirSync(directory);
+                let numbers = [];
+                let re = /^(\d+)\.bin/;
+                for (let file of files) {
+                    let result = re.exec(file);
+                    if (!result)
+                        continue;
+                    numbers.push(parseInt(result[1]));
+                }
+                if (numbers.length) {
+                    numbers.sort();
+                    name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
+                } else {
+                    name = '0001';
+                }
+                name = name + '.bin';
+
+                return this._filer.lockWriteBuffer(
+                    path.join(directory, name),
+                    buffer,
+                    {mode: this.fileMode, uid: this.user, gid: this.group}
+                );
+            });
+    }
+
+    /**
+     * Download a file
+     * @param {string} filename                     Variable path
+     * @return {Promise}                            Resolves Buffer
+     */
+    download(filename) {
+        this._logger.debug('directory', `Downloading from ${filename}`);
+
+        let directory = path.join(this.dataDir, filename, '.files');
+
+        let loadDir = dir => {
+            return new Promise((resolve, reject) => {
+                try {
+                    let name;
+                    let files = fs.readdirSync(dir);
+                    let numbers = [];
+                    let reBin = /^(\d+)\.bin$/, reDir = /^(\d+)$/;
+                    for (let file of files) {
+                        let result = reBin.exec(file);
+                        if (result)
+                            numbers.push(result[1]);
+                    }
+                    if (numbers.length) {
+                        numbers.sort();
+                        name = numbers[numbers.length - 1] + '.bin';
+                        this._filer.lockReadBuffer(path.join(dir, name))
+                            .then(buffer => {
+                                resolve(buffer);
+                            })
+                            .catch(error => {
+                                this._logger.error(`FS error: ${error.message}`);
+                                resolve(null);
+                            });
+                    } else {
+                        numbers = [];
+                        for (let file of files) {
+                            let result = reDir.exec(file);
+                            if (result)
+                                numbers.push(result[1]);
+                        }
+                        if (numbers.length) {
+                            numbers.sort();
+                            name = numbers[numbers.length - 1];
+                            loadDir(path.join(dir, name))
+                                .then(buffer => {
+                                    resolve(buffer);
+                                })
+                                .catch(error => {
+                                    this._logger.error(`FS error: ${error.message}`);
+                                    resolve(null);
+                                });
+                        } else {
+                            resolve(null);
+                        }
+                    }
+                } catch (error) {
+                    this._logger.error(`FS error: ${error.message}`);
+                    resolve(null);
+                }
+            });
+        };
+
+        return loadDir(directory);
+    }
+
+    /**
      * Clear cache
      * @return {Promise}
      */

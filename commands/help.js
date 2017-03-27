@@ -73,6 +73,8 @@ class Help {
                 '\tset-attr\tSet attribute\n' +
                 '\tget-attr\tGet attribute\n' +
                 '\tdel-attr\tDelete attribute\n' +
+                '\tupload\tUpload a file\n' +
+                '\tdownload\tDownload a file\n' +
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
                 '\trestart\t\tRestart the daemon\n' +
@@ -260,6 +262,36 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl del-attr <path> <name> [-z <socket>]\n\n' +
                 '\tDelete an attribute.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Upload command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpUpload(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl upload <filename> <path> [-z <socket>]\n\n' +
+                '\tUpload a file to the path.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Download command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpDownload(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl download <path> <filename> [-z <socket>]\n\n' +
+                '\tDownload a file from the path.\n'
             )
             .then(() => {
                 process.exit(0);

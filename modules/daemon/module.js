@@ -85,6 +85,12 @@ class Daemon {
         let delAttr = this._app.get('modules.daemon.events.delAttr');
         server.on('del_attr', delAttr.handle.bind(delAttr));
 
+        let upload = this._app.get('modules.daemon.events.upload');
+        server.on('upload', upload.handle.bind(upload));
+
+        let download = this._app.get('modules.daemon.events.download');
+        server.on('download', download.handle.bind(download));
+
         let clearCache = this._app.get('modules.daemon.events.clearCache');
         server.on('clear_cache', clearCache.handle.bind(clearCache));
 
