@@ -28,8 +28,10 @@ class Index extends EventEmitter {
 
         this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
         this.needSave = false;
+        this.needLoad = false;
 
         this._saving = false;
+        this._loading = false;
 
         this._name = null;
         this._app = app;
@@ -127,10 +129,15 @@ class Index extends EventEmitter {
     }
 
     save() {
+        if (this._loading || this._saving)
+            return Promise.resolve();
+
         if (!this.tree.tree.data.length)
             return Promise.resolve();
 
         this._logger.debug('index', 'Saving index');
+        this._saving = true;
+        this.needSave = false;
 
         let hash, tree;
         try {
@@ -138,18 +145,35 @@ class Index extends EventEmitter {
             tree = this._serialize(this.tree.tree);
             hash.update(tree);
         } catch (error) {
+            this._saving = false;
             return Promise.reject(error);
         }
 
         return this._filer.lockWriteBuffer(
-            path.join(this._directory.dataDir, '.index.1'),
-            Buffer.concat([ hash.digest(), tree ]),
-            { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
-        );
+                path.join(this._directory.dataDir, '.index.1'),
+                Buffer.concat([ hash.digest(), tree ]),
+                { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
+            )
+            .then(
+                () => {
+                    this._saving = false;
+                    if (this.needSave)
+                        this.save();
+                },
+                error => {
+                    this._saving = false;
+                    throw error;
+                }
+            );
     }
 
     load() {
+        if (this._loading || this._saving)
+            return Promise.resolve();
+
         this._logger.debug('index', 'Loading index');
+        this._loading = true;
+        this.needLoad = false;
 
         return this._filer.lockReadBuffer(path.join(this._directory.dataDir, '.index.1'))
             .then(buffer => {
@@ -164,7 +188,18 @@ class Index extends EventEmitter {
                 let node = this._deserialize({ buffer: treeBuffer, offset: 0 }, null);
                 if (node)
                     this.tree.tree = node;
-            });
+            })
+            .then(
+                () => {
+                    this._loading = false;
+                    if (this.needLoad)
+                        return this.load();
+                },
+                error => {
+                    this._loading = false;
+                    throw error;
+                }
+            );
     }
 
     search(id) {
@@ -232,21 +267,13 @@ class Index extends EventEmitter {
     }
 
     onSaveTimer() {
-        if (this._saving || !this.needSave)
+        if (!this.needSave)
             return;
 
-        this._saving = true;
         this.save()
-            .then(
-                () => {
-                    this._saving = false;
-                    this.needSave = false;
-                },
-                error => {
-                    this._saving = false;
-                    this._logger.error(error);
-                }
-            );
+            .catch(error => {
+                this._logger.error(error);
+            });
     }
 
     _serialize(node) {

@@ -151,6 +151,10 @@ class Resilio extends EventEmitter {
                 this.logWatcher.on('error', this.onErrorLog.bind(this));
                 this.onChangeLog('init', null);
                 this._directory.clearCache()
+                    .then(() => {
+                        this._index.needLoad = true;
+                        return this._index.load();
+                    })
                     .catch(error => {
                         this._logger.error(`Clear cacher error: ${error.message}`);
                     });
@@ -306,10 +310,12 @@ class Resilio extends EventEmitter {
                 continue;
 
             let file;
-            if (result[1].indexOf('/.files/') !== -1)
-                continue;
-            if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.vars.json'))
+            if (result[1] === path.join(this._directory.dataDir, '.index.1')) {
+                this._index.needLoad = true;
+                this._index.load();
+            } else if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.vars.json')) {
                 file = path.dirname(result[1]);
+            }
 
             if (file && files.indexOf(file) === -1) {
                 this._logger.info(`Path updated: ${file}`);
@@ -318,8 +324,10 @@ class Resilio extends EventEmitter {
         }
 
         let promises = [];
-        for (let file of files)
-            promises.push(this._filer.lockRead(path.join(file, '.vars.json')));
+        for (let file of files) {
+            if (file.indexOf('/.') === -1)
+                promises.push(this._filer.lockRead(path.join(file, '.vars.json')));
+        }
 
         if (!promises.length)
             return exit();
@@ -377,6 +385,17 @@ class Resilio extends EventEmitter {
             return this._directory_instance;
         this._directory_instance = this._app.get('servers').get('directory');
         return this._directory_instance;
+    }
+
+    /**
+     * Retrieve index server
+     * @return {Index}
+     */
+    get _index() {
+        if (this._index_instance)
+            return this._index_instance;
+        this._index_instance = this._app.get('servers').get('index');
+        return this._index_instance;
     }
 }
 
