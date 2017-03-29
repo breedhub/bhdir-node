@@ -47,7 +47,7 @@ class State extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer', 'cacher' ];
+        return [ 'app', 'config', 'logger', 'filer' ];
     }
 
     /**

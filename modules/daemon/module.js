@@ -91,6 +91,9 @@ class Daemon {
         let download = this._app.get('modules.daemon.events.download');
         server.on('download', download.handle.bind(download));
 
+        let index = this._app.get('modules.daemon.events.index');
+        server.on('index', index.handle.bind(index));
+
         let clearCache = this._app.get('modules.daemon.events.clearCache');
         server.on('clear_cache', clearCache.handle.bind(clearCache));
 

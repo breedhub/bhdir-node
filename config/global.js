@@ -47,6 +47,9 @@ module.exports = {
         state: {
             class: 'servers.state',
         },
+        index: {
+            class: 'servers.index',
+        },
         resilio: {
             class: 'servers.resilio',
         },

@@ -75,6 +75,7 @@ class Help {
                 '\tdel-attr\tDelete attribute\n' +
                 '\tupload\t\tUpload a file\n' +
                 '\tdownload\tDownload a file\n' +
+                '\tindex\tBuild index\n' +
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
                 '\trestart\t\tRestart the daemon\n' +
@@ -292,6 +293,21 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl download <path> <filename> [-z <socket>]\n\n' +
                 '\tDownload a file from the path.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Index command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpIndex(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl index [-z <socket>]\n\n' +
+                '\tBuild index.\n'
             )
             .then(() => {
                 process.exit(0);

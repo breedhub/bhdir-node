@@ -335,6 +335,9 @@ class Daemon extends EventEmitter {
                 case 'download':
                     this.emit('download', id, message);
                     break;
+                case 'index':
+                    this.emit('index', id, message);
+                    break;
                 case 'clear-cache':
                     this.emit('clear_cache', id, message);
                     break;
