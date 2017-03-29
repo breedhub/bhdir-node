@@ -53,7 +53,9 @@ class Index {
                 id: message.id,
                 success: success,
             };
-            if (!success)
+            if (success)
+                reply.results = value;
+            else
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
             this._logger.debug('get', `Sending INDEX response`);
@@ -61,8 +63,8 @@ class Index {
         };
 
         this.index.build()
-            .then(() => {
-                reply(true);
+            .then(messages => {
+                reply(true, messages);
             })
             .catch(error => {
                 reply(false, error.message);

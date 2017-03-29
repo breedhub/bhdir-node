@@ -74,6 +74,13 @@ class Index {
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
+                return response.results.reduce((prev, cur) => {
+                    return prev.then(() => {
+                        return this._app.info(cur + '\n');
+                    });
+                }, Promise.resolve());
+            })
+            .then(() => {
                 process.exit(0);
             })
             .catch(error => {

@@ -5,7 +5,9 @@
 const path = require('path');
 const fs = require('fs');
 const uuid = require('uuid');
+const bignum = require('bignum');
 const EventEmitter = require('events');
+const AVLTree = require('binary-search-tree').AVLTree;
 const WError = require('verror').WError;
 
 /**
@@ -18,8 +20,9 @@ class Index extends EventEmitter {
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
      * @param {Filer} filer                         Filer service
+     * @param {Util} util                           Util service
      */
-    constructor(app, config, logger, filer) {
+    constructor(app, config, logger, filer, util) {
         super();
 
         this._name = null;
@@ -27,6 +30,7 @@ class Index extends EventEmitter {
         this._config = config;
         this._logger = logger;
         this._filer = filer;
+        this._util = util;
     }
 
     /**
@@ -42,8 +46,13 @@ class Index extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer' ];
+        return [ 'app', 'config', 'logger', 'filer', 'util' ];
     }
+
+    static compareKeys(a, b) {
+        return bignum.cmp(a, b);
+    }
+
 
     /**
      * Initialize the server
@@ -89,9 +98,83 @@ class Index extends EventEmitter {
      * @return {Promise}
      */
     build() {
-        return Promise.resolve();
+        let tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+        let messages = [];
+        return this._loadDir(this._directory.dataDir, tree, messages)
+            .then(() => {
+                return messages;
+            });
     }
 
+    _loadDir(dir, tree, messages) {
+        return new Promise((resolve, reject) => {
+                fs.readdir(dir, (error, files) => {
+                    if (error)
+                        return reject(error);
+
+                    resolve(files);
+                });
+            })
+            .then(files => {
+                let promises = [];
+                for (let file of files) {
+                    promises.push(
+                        new Promise((resolveStats, rejectStats) => {
+                            fs.stat(path.join(dir, file), (error, stats) => {
+                                if (error)
+                                    return rejectStats(error);
+
+                                resolveStats(stats);
+                            });
+                        })
+                    );
+                }
+
+                if (!promises.length)
+                    return;
+
+                Promise.all(promises)
+                    .then(stats => {
+                        promises = [];
+                        let directory = dir.substring(this._directory.dataDir.length) || '/';
+                        for (let i = 0; i < files.length; i++) {
+                            if (stats[i].isDirectory()) {
+                                promises.push(this._loadDir(path.join(dir, files[i]), tree));
+                            } else if (files[i] === '.vars.json') {
+                                promises.push(
+                                    this._filer.lockRead(path.join(dir, files[i]))
+                                        .then(contents => {
+                                            let json;
+                                            try {
+                                                json = JSON.parse(contents);
+                                            } catch (error) {
+                                                return messages.push(`Could not read ${path.join(dir, files[i])}`);
+                                            }
+
+                                            for (let key of Object.keys(json)) {
+                                                let varId = json[key]['id'];
+                                                if (!this._util.isUuid(varId))
+                                                    continue;
+                                                let varName = path.join(directory, key);
+                                                tree.insert(this._binUuid(varId), {
+                                                    type: 'var',
+                                                    path: varName,
+                                                });
+                                            }
+                                        })
+                                );
+                            }
+                        }
+
+                        if (promises.length)
+                            return Promise.all(promises);
+                    });
+            });
+    }
+
+    _binUuid(id) {
+        return bignum.fromBuffer(Buffer.from(id.replace(/-/g, ''), 'hex'));
+    }
     /**
      * Retrieve directory server
      * @return {Directory}
