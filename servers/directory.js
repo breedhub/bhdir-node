@@ -24,8 +24,9 @@ class Directory extends EventEmitter {
      * @param {Runner} runner               Runner service
      * @param {RedisClient} redis           Redis service
      * @param {Cacher} cacher               Cacher service
+     * @param {Util} util                   Util service
      */
-    constructor(app, config, logger, filer, runner, redis, cacher) {
+    constructor(app, config, logger, filer, runner, redis, cacher, util) {
         super();
 
         this.waiting = new Map();
@@ -38,6 +39,7 @@ class Directory extends EventEmitter {
         this._runner = runner;
         this._redis = redis;
         this._cacher = cacher;
+        this._util = util;
     }
 
     /**
@@ -53,7 +55,7 @@ class Directory extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'filer', 'runner', 'redis', 'cacher' ];
+        return [ 'app', 'config', 'logger', 'filer', 'runner', 'redis', 'cacher', 'util' ];
     }
 
     /**
@@ -548,62 +550,79 @@ class Directory extends EventEmitter {
     get(filename, cacheResult = true) {
         this._logger.debug('directory', `Getting ${filename}`);
 
-        let name = path.basename(filename);
-        let directory = path.join(this.dataDir, path.dirname(filename));
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(filename))
+                    return filename;
 
-        return this._cacher.get(filename)
-            .then(info => {
-                if (typeof info !== 'undefined')
-                    return info;
+                let info = this._index.search(this._index.constructor.binUuid(filename));
+                if (!info)
+                    return null;
 
-                let exists;
-                try {
-                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
-                    exists = true;
-                } catch (error) {
-                    exists = false;
-                }
+                return info.path;
+            })
+            .then(filename => {
+                console.log(filename);
+                if (!filename)
+                    return null;
 
-                return Promise.resolve()
-                    .then(() => {
-                        if (!exists)
-                            return {};
+                let name = path.basename(filename);
+                let directory = path.join(this.dataDir, path.dirname(filename));
 
-                        return new Promise((resolve, reject) => {
-                            let tries = 0;
-                            let retry = () => {
-                                if (++tries > this.constructor.dataRetryMax)
-                                    return reject(new Error(`Max retries reached while getting ${filename}`));
+                return this._cacher.get(filename)
+                    .then(info => {
+                        if (typeof info !== 'undefined')
+                            return info;
 
-                                this._filer.lockRead(path.join(directory, '.vars.json'))
-                                    .then(contents => {
-                                        let json;
-                                        try {
-                                            json = JSON.parse(contents);
-                                        } catch (error) {
-                                            setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                            return;
-                                        }
+                        let exists;
+                        try {
+                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                            exists = true;
+                        } catch (error) {
+                            exists = false;
+                        }
 
-                                        resolve(json);
-                                    })
-                                    .catch(error => {
-                                        reject(error);
-                                    });
-                            };
-                            retry();
-                        });
-                    })
-                    .then(json => {
-                        if (!cacheResult)
-                            return json[name];
-
-                        return this._cacher.set(filename, typeof json[name] === 'undefined' ? null : json[name])
+                        return Promise.resolve()
                             .then(() => {
-                                return json[name];
+                                if (!exists)
+                                    return {};
+
+                                return new Promise((resolve, reject) => {
+                                    let tries = 0;
+                                    let retry = () => {
+                                        if (++tries > this.constructor.dataRetryMax)
+                                            return reject(new Error(`Max retries reached while getting ${filename}`));
+
+                                        this._filer.lockRead(path.join(directory, '.vars.json'))
+                                            .then(contents => {
+                                                let json;
+                                                try {
+                                                    json = JSON.parse(contents);
+                                                } catch (error) {
+                                                    setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                                    return;
+                                                }
+
+                                                resolve(json);
+                                            })
+                                            .catch(error => {
+                                                reject(error);
+                                            });
+                                    };
+                                    retry();
+                                });
+                            })
+                            .then(json => {
+                                if (!cacheResult)
+                                    return json[name];
+
+                                return this._cacher.set(filename, typeof json[name] === 'undefined' ? null : json[name])
+                                    .then(() => {
+                                        return json[name];
+                                    });
                             });
                     });
-            });
+            })
     }
 
     /**
@@ -1008,6 +1027,17 @@ class Directory extends EventEmitter {
             return this._state_instance;
         this._state_instance = this._app.get('servers').get('state');
         return this._state_instance;
+    }
+
+    /**
+     * Retrieve index server
+     * @return {Index}
+     */
+    get _index() {
+        if (this._index_instance)
+            return this._index_instance;
+        this._index_instance = this._app.get('servers').get('index');
+        return this._index_instance;
     }
 }
 

@@ -52,6 +52,10 @@ class Index extends EventEmitter {
         return [ 'app', 'config', 'logger', 'filer', 'util' ];
     }
 
+    static binUuid(id) {
+        return bignum.fromBuffer(Buffer.from(id.replace(/-/g, ''), 'hex'));
+    }
+
     static compareKeys(a, b) {
         return a.cmp(b);
     }
@@ -132,6 +136,14 @@ class Index extends EventEmitter {
         );
     }
 
+    search(id) {
+        if (!this.tree)
+            return null;
+
+        let result = this.tree.search(id);
+        return result.length ? result[0] : null;
+    }
+
     _serialize(node) {
         if (!node)
             return Buffer.alloc(17, 0);
@@ -196,7 +208,7 @@ class Index extends EventEmitter {
                                                 if (!this._util.isUuid(varId))
                                                     continue;
                                                 let varName = path.join(directory, key);
-                                                tree.insert(this._binUuid(varId), {
+                                                tree.insert(this.constructor.binUuid(varId), {
                                                     type: 'var',
                                                     path: varName,
                                                 });
@@ -210,10 +222,6 @@ class Index extends EventEmitter {
                             return Promise.all(promises);
                     });
             });
-    }
-
-    _binUuid(id) {
-        return bignum.fromBuffer(Buffer.from(id.replace(/-/g, ''), 'hex'));
     }
 
     /**
