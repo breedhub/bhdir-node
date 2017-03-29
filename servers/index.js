@@ -239,6 +239,7 @@ class Index extends EventEmitter {
             .then(
                 () => {
                     this._saving = false;
+                    this.needSave = false;
                 },
                 error => {
                     this._saving = false;
