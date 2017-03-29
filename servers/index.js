@@ -26,7 +26,7 @@ class Index extends EventEmitter {
     constructor(app, config, logger, filer, util) {
         super();
 
-        this.tree = null;
+        this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
 
         this._name = null;
         this._app = app;
@@ -50,6 +50,10 @@ class Index extends EventEmitter {
      */
     static get requires() {
         return [ 'app', 'config', 'logger', 'filer', 'util' ];
+    }
+
+    static get nullId() {
+        return Buffer.alloc(16, 0);
     }
 
     static binUuid(id) {
@@ -112,12 +116,15 @@ class Index extends EventEmitter {
                 return this.save();
             })
             .then(() => {
+                return this.load();
+            })
+            .then(() => {
                 return messages;
             });
     }
 
     save() {
-        if (!this.tree || !this.tree.tree.data.length)
+        if (!this.tree.tree.data.length)
             return Promise.resolve();
 
         let hash, tree;
@@ -136,17 +143,42 @@ class Index extends EventEmitter {
         );
     }
 
+    load() {
+        return this._filer.lockReadBuffer(path.join(this._directory.dataDir, '.index.1'))
+            .then(buffer => {
+                let hashBuffer = buffer.slice(0, 16);
+                let treeBuffer = buffer.slice(16);
+
+                let hash = crypto.createHash('md5');
+                hash.update(treeBuffer);
+                if (!hashBuffer.equals(hash.digest()))
+                    throw new Error('Index has wrong checksum');
+
+                let node = this._deserialize({ buffer: buffer, offset: 0 });
+                if (node) {
+                    this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+                    this.tree.tree = node;
+                }
+            });
+    }
+
     search(id) {
         if (!this.tree)
             return null;
 
-        let result = this.tree.search(id);
-        return result.length ? result[0] : null;
+        let search = this.tree.search(id);
+        let result = search.length ? search[0] : null;
+        if (!result)
+            return result;
+
+        if (!result.data)
+            result.data = JSON.parse(result.buffer);
+        return result.data;
     }
 
     _serialize(node) {
         if (!node)
-            return Buffer.alloc(17, 0);
+            return Buffer.alloc(16, 0);
 
         let buffer = node.key.toBuffer();
         if (buffer.length !== 16)
@@ -154,8 +186,40 @@ class Index extends EventEmitter {
         if (node.data.length !== 1)
             throw new Error(`Invalid data size: ${node.data.length}`);
 
-        let json = JSON.stringify(node.data[0]);
-        return Buffer.concat([ buffer, Buffer.from(json), Buffer.alloc(1, 0), this._serialize(node.left), this._serialize(node.right) ]);
+        if (!node.data[0].buffer)
+            node.data[0].buffer = Buffer.from(JSON.stringify(node.data[0].data));
+
+        return Buffer.concat([ buffer, node.data[0].buffer, Buffer.alloc(1, 0), this._serialize(node.left), this._serialize(node.right) ]);
+    }
+
+    _deserialize(info) {
+        let id = info.buffer.slice(info.offset, info.offset + 16);
+        if (id.equals(this.constructor.nullId))
+            return null;
+
+        let ClassFunc = this.tree.tree.constructor;
+        let node = new ClassFunc({ unique: true, compareKeys: this.constructor.compareKeys });
+
+        info.offset += 16;
+        let start = info.offset;
+        while (true) {
+            if (info.offset >= info.buffer.length)
+                throw new Error('Index is truncated');
+
+            if (info.buffer[info.offset++] === 0)
+                break;
+        }
+
+        node.key = bignum.fromBuffer(id);
+        node.data = { buffer: info.buffer.slice(start, info.offset - 1), data: null };
+        let left = this._deserialize(info);
+        if (left)
+            node.left = left;
+        let right = this._deserialize(info);
+        if (right)
+            node.right = right;
+
+        return node;
     }
 
     _loadDir(dir, tree, messages) {
@@ -209,8 +273,11 @@ class Index extends EventEmitter {
                                                     continue;
                                                 let varName = path.join(directory, key);
                                                 tree.insert(this.constructor.binUuid(varId), {
-                                                    type: 'var',
-                                                    path: varName,
+                                                    buffer: null,
+                                                    data: {
+                                                        type: 'var',
+                                                        path: varName,
+                                                    }
                                                 });
                                             }
                                         })
