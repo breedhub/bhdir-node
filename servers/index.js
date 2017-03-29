@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const uuid = require('uuid');
 const bignum = require('bignum');
+const crypto = require('crypto');
 const EventEmitter = require('events');
 const AVLTree = require('binary-search-tree').AVLTree;
 const WError = require('verror').WError;
@@ -24,6 +25,8 @@ class Index extends EventEmitter {
      */
     constructor(app, config, logger, filer, util) {
         super();
+
+        this.tree = null;
 
         this._name = null;
         this._app = app;
@@ -50,9 +53,8 @@ class Index extends EventEmitter {
     }
 
     static compareKeys(a, b) {
-        return bignum.cmp(a, b);
+        return a.cmp(b);
     }
-
 
     /**
      * Initialize the server
@@ -102,8 +104,46 @@ class Index extends EventEmitter {
         let messages = [];
         return this._loadDir(this._directory.dataDir, tree, messages)
             .then(() => {
+                this.tree = tree;
+                return this.save();
+            })
+            .then(() => {
                 return messages;
             });
+    }
+
+    save() {
+        if (!this.tree || !this.tree.tree.data.length)
+            return Promise.resolve();
+
+        let hash, tree;
+        try {
+            hash = crypto.createHash('md5');
+            tree = this._serialize(this.tree.tree);
+            hash.update(tree);
+        } catch (error) {
+            return Promise.reject(error);
+        }
+
+        return this._filer.lockWriteBuffer(
+            path.join(this._directory.dataDir, '.index.1'),
+            Buffer.concat([ hash.digest(), tree ]),
+            { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
+        );
+    }
+
+    _serialize(node) {
+        if (!node)
+            return Buffer.alloc(17, 0);
+
+        let buffer = node.key.toBuffer();
+        if (buffer.length !== 16)
+            throw new Error(`Invalid ID size: ${buffer.length}`);
+        if (node.data.length !== 1)
+            throw new Error(`Invalid data size: ${node.data.length}`);
+
+        let json = JSON.stringify(node.data[0]);
+        return Buffer.concat([ buffer, Buffer.from(json), Buffer.alloc(1, 0), this._serialize(node.left), this._serialize(node.right) ]);
     }
 
     _loadDir(dir, tree, messages) {
@@ -133,13 +173,13 @@ class Index extends EventEmitter {
                 if (!promises.length)
                     return;
 
-                Promise.all(promises)
+                return Promise.all(promises)
                     .then(stats => {
                         promises = [];
                         let directory = dir.substring(this._directory.dataDir.length) || '/';
                         for (let i = 0; i < files.length; i++) {
                             if (stats[i].isDirectory()) {
-                                promises.push(this._loadDir(path.join(dir, files[i]), tree));
+                                promises.push(this._loadDir(path.join(dir, files[i]), tree, messages));
                             } else if (files[i] === '.vars.json') {
                                 promises.push(
                                     this._filer.lockRead(path.join(dir, files[i]))
@@ -175,6 +215,7 @@ class Index extends EventEmitter {
     _binUuid(id) {
         return bignum.fromBuffer(Buffer.from(id.replace(/-/g, ''), 'hex'));
     }
+
     /**
      * Retrieve directory server
      * @return {Directory}
