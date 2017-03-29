@@ -27,6 +27,7 @@ class Index extends EventEmitter {
         super();
 
         this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+        this.confirmation = new Map();
         this.needSave = false;
         this.needLoad = false;
 
@@ -188,6 +189,19 @@ class Index extends EventEmitter {
                 let node = this._deserialize({ buffer: treeBuffer, offset: 0 }, null);
                 if (node)
                     this.tree.tree = node;
+
+                for (let [ id, confirm ] of this.confirmation) {
+                    let search = this.tree.search(id);
+                    if (search.length) {
+                        if (++confirm.counter >= 3) {
+                            this._logger.debug('index', `Id ${id} confirmed`);
+                            this.confirmation.delete(id);
+                        }
+                    } else {
+                        this._logger.debug('index', `Id ${id} missed from index`);
+                        this.insert(confirm.type, id, confirm.info);
+                    }
+                }
             })
             .then(
                 () => {
@@ -220,41 +234,47 @@ class Index extends EventEmitter {
             return;
 
         this._logger.debug('index', `Inserting ${type} of ${info.path} as ${id}`);
+        let data;
         switch (type) {
             case 'variable':
-                this.tree.insert(id, {
-                    buffer: null,
-                    data: {
-                        type: type,
-                        path: info.path,
-                    }
-                });
+                data = {
+                    type: type,
+                    path: info.path,
+                };
                 break;
             case 'history':
-                this.tree.insert(id, {
-                    buffer: null,
-                    data: {
-                        type: type,
-                        path: info.path,
-                        attr: info.attr,
-                    }
-                });
+                data = {
+                    type: type,
+                    path: info.path,
+                    attr: info.attr,
+                };
                 break;
             case 'file':
-                this.tree.insert(id, {
-                    buffer: null,
-                    data: {
-                        type: type,
-                        path: info.path,
-                        attr: info.attr,
-                        bin: info.bin,
-                    }
-                });
+                data = {
+                    type: type,
+                    path: info.path,
+                    attr: info.attr,
+                    bin: info.bin,
+                };
                 break;
             default:
                 throw new Error(`Invalid type: ${type}`);
         }
+        this.tree.insert(id, {
+            buffer: null,
+            data: data,
+        });
         this.needSave = true;
+
+        let confirm = this.confirmation.get(id);
+        if (!confirm) {
+            confirm = {
+                counter: 0,
+                type: type,
+                info: info,
+            };
+            this.confirmation.set(id, confirm);
+        }
     }
 
     del(id) {
