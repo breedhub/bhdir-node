@@ -198,6 +198,7 @@ class Index extends EventEmitter {
                             this.confirmation.delete(id);
                         }
                     } else {
+                        confirm.counter = 0;
                         this._logger.debug('index', `Id ${id} missed from index`);
                         this.insert(confirm.type, id, confirm.info);
                     }
