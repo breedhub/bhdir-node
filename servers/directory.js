@@ -335,34 +335,50 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     wait(filename, timeout) {
-        return this.get(filename, false)
-            .then(info => {
-                if (!info) {
-                    info = {
-                        value: null,
-                        mtime: 0,
-                    };
-                }
-                let waiting = this.waiting.get(filename);
-                if (waiting && (!this.isEqual(waiting.value, info.value) || waiting.mtime !== info.mtime)) {
-                    this.notify(filename, info);
-                    waiting = null;
-                }
-                if (!waiting) {
-                    waiting = info;
-                    waiting.handlers = new Set();
-                    this.waiting.set(filename, waiting);
-                }
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(filename))
+                    return filename;
 
-                return new Promise((resolve) => {
-                    let cb = (timeout, value) => {
-                        this._logger.debug('directory', `Wait on ${filename} timeout: ${timeout}`);
-                        resolve([ timeout, value ]);
-                    };
-                    info.handlers.add(cb);
-                    if (timeout)
-                        setTimeout(() => { cb(true, info.value); }, timeout);
-                });
+                let search = this._index.search(this._index.constructor.binUuid(filename));
+                if (!search || search.type !== 'variable')
+                    return null;
+
+                return search.path;
+            })
+            .then(filename => {
+                if (!filename)
+                    return;
+
+                return this.get(filename, false)
+                    .then(info => {
+                        if (!info) {
+                            info = {
+                                value: null,
+                                mtime: 0,
+                            };
+                        }
+                        let waiting = this.waiting.get(filename);
+                        if (waiting && (!this.isEqual(waiting.value, info.value) || waiting.mtime !== info.mtime)) {
+                            this.notify(filename, info);
+                            waiting = null;
+                        }
+                        if (!waiting) {
+                            waiting = info;
+                            waiting.handlers = new Set();
+                            this.waiting.set(filename, waiting);
+                        }
+
+                        return new Promise((resolve) => {
+                            let cb = (timeout, value) => {
+                                this._logger.debug('directory', `Wait on ${filename} timeout: ${timeout}`);
+                                resolve([ timeout, value ]);
+                            };
+                            info.handlers.add(cb);
+                            if (timeout)
+                                setTimeout(() => { cb(true, info.value); }, timeout);
+                        });
+                    })
             })
             .catch(error => {
                 this._logger.error(new WError(error, 'Directory.wait()'));
