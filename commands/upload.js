@@ -92,6 +92,9 @@ class Upload {
                         if (!response.success)
                             throw new Error(`Error: ${response.message}`);
 
+                        return this._app.info(response.results[0] + '\n');
+                    })
+                    .then(() => {
                         process.exit(0);
                     })
             })

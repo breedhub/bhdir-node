@@ -53,8 +53,13 @@ class Upload {
                 id: message.id,
                 success: success,
             };
-            if (!success)
+            if (success) {
+                reply.results = [
+                    value,
+                ];
+            } else {
                 reply.message = value;
+            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
             this._logger.debug('get', `Sending UPLOAD response`);
             this.daemon.send(id, data);
@@ -70,8 +75,8 @@ class Upload {
             return reply(false, 'Invalid path');
 
         this.directory.upload(name, Buffer.from(contents, 'base64'))
-            .then(() => {
-                reply(true);
+            .then(id => {
+                reply(true, id);
             })
             .catch(error => {
                 reply(false, error.message);

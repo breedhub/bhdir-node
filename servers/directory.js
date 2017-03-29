@@ -829,7 +829,7 @@ class Directory extends EventEmitter {
      * Upload a file
      * @param {string} filename                     Variable path
      * @param {Buffer} buffer                       File
-     * @return {Promise}
+     * @return {Promise}                            Resolves to id
      */
     upload(filename, buffer) {
         this._logger.debug('directory', `Uploading to ${filename}`);
@@ -846,6 +846,11 @@ class Directory extends EventEmitter {
             this._padNumber(now.getUTCHours(), 2)
         );
 
+        let json = {
+            id: uuid.v4(),
+            mtime: mtime,
+        };
+
         return this._filer.createDirectory(
             directory,
             { mode: this.dirMode, uid: this.user, gid: this.group }
@@ -854,12 +859,17 @@ class Directory extends EventEmitter {
                 let name;
                 let files = fs.readdirSync(directory);
                 let numbers = [];
-                let re = /^(\d+)\.bin/;
+                let reBin = /^(\d+)\.bin/, reJson = /^(\d+)\.json/;
                 for (let file of files) {
-                    let result = re.exec(file);
+                    let result = reBin.exec(file);
+                    if (!result)
+                        result = reJson.exec(file);
                     if (!result)
                         continue;
-                    numbers.push(parseInt(result[1]));
+
+                    let number = parseInt(result[1]);
+                    if (numbers.indexOf(number) === -1)
+                        numbers.push(number);
                 }
                 if (numbers.length) {
                     numbers.sort();
@@ -867,13 +877,22 @@ class Directory extends EventEmitter {
                 } else {
                     name = '0001';
                 }
-                name = name + '.bin';
 
-                return this._filer.lockWriteBuffer(
-                    path.join(directory, name),
-                    buffer,
-                    {mode: this.fileMode, uid: this.user, gid: this.group}
-                );
+                return Promise.all([
+                        this._filer.lockWrite(
+                            path.join(directory, name + '.json'),
+                            JSON.stringify(json, undefined, 4) + '\n',
+                            { mode: this.fileMode, uid: this.user, gid: this.group }
+                        ),
+                        this._filer.lockWriteBuffer(
+                            path.join(directory, name + '.bin'),
+                            buffer,
+                            { mode: this.fileMode, uid: this.user, gid: this.group }
+                        ),
+                    ]);
+            })
+            .then(() => {
+                return json.id;
             });
     }
 
