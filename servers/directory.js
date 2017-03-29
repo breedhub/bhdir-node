@@ -335,7 +335,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     wait(filename, timeout) {
-        return this.get(filename)
+        return this.get(filename, false)
             .then(info => {
                 if (!info) {
                     info = {

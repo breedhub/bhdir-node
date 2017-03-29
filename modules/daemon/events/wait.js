@@ -14,11 +14,13 @@ class Wait {
      * @param {App} app                             The application
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
+     * @param {Util} util                           Util service
      */
-    constructor(app, config, logger) {
+    constructor(app, config, logger, util) {
         this._app = app;
         this._config = config;
         this._logger = logger;
+        this._util = util;
     }
 
     /**
@@ -34,7 +36,7 @@ class Wait {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger' ];
+        return [ 'app', 'config', 'logger', 'util' ];
     }
 
     /**
@@ -73,7 +75,7 @@ class Wait {
 
         let name = message.args[0];
         let timeout = message.args[1];
-        if (!this.directory.validatePath(name))
+        if (!this._util.isUuid(name) && !this.directory.validatePath(name))
             return reply(false, 'Invalid path');
         try {
             timeout = parseInt(timeout);
