@@ -453,89 +453,103 @@ class Directory extends EventEmitter {
     set(filename, info, value) {
         this._logger.debug('directory', `Setting ${filename}`);
 
-        let name = path.basename(filename);
-        let directory = path.join(this.dataDir, path.dirname(filename));
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(filename))
+                    return filename;
 
-        return this.get(filename, false)
-            .then(old => {
-                if (old && (typeof value !== 'undefined') && this.isEqual(old.value, value))
+                let search = this._index.search(this._index.constructor.binUuid(filename));
+                if (!search || search.type !== 'variable')
                     return null;
 
-                if (!info)
-                    info = old;
-                if (!info)
-                    info = {};
+                return search.path;
+            })
+            .then(filename => {
+                let name = path.basename(filename);
+                let directory = path.join(this.dataDir, path.dirname(filename));
 
-                info.mtime = Math.round(Date.now() / 1000);
-                if (!info.ctime)
-                    info.ctime = info.mtime;
-                if (!info.id)
-                    info.id = uuid.v4();
-                if (typeof value !== 'undefined')
-                    info.value = value;
+                return this.get(filename, false, false)
+                    .then(old => {
+                        if (old && (typeof value !== 'undefined') && this.isEqual(old.value, value))
+                            return null;
 
-                return this._cacher.set(filename, info)
-                    .then(() => {
-                        return this._filer.createDirectory(
-                                directory,
-                                { mode: this.dirMode, uid: this.user, gid: this.group }
-                            )
+                        if (!info)
+                            info = old;
+                        if (!info)
+                            info = {};
+
+                        info.mtime = Math.round(Date.now() / 1000);
+                        if (!info.ctime)
+                            info.ctime = info.mtime;
+                        if (!info.id)
+                            info.id = uuid.v4();
+                        if (typeof value !== 'undefined')
+                            info.value = value;
+
+                        return this._cacher.set(filename, info)
                             .then(() => {
-                                let exists;
-                                try {
-                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
-                                    exists = true;
-                                } catch (error) {
-                                    exists = false;
-                                }
+                                return this._filer.createDirectory(
+                                        directory,
+                                        { mode: this.dirMode, uid: this.user, gid: this.group }
+                                    )
+                                    .then(() => {
+                                        let exists;
+                                        try {
+                                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                            exists = true;
+                                        } catch (error) {
+                                            exists = false;
+                                        }
 
-                                return new Promise((resolve, reject) => {
-                                    let tries = 0;
-                                    let retry = () => {
-                                        if (++tries > this.constructor.dataRetryMax)
-                                            return reject(new Error(`Max retries reached while setting ${filename}`));
+                                        return new Promise((resolve, reject) => {
+                                            let tries = 0;
+                                            let retry = () => {
+                                                if (++tries > this.constructor.dataRetryMax)
+                                                    return reject(new Error(`Max retries reached while setting ${filename}`));
 
-                                        let success = false;
-                                        this._filer.lockUpdate(
-                                            path.join(directory, '.vars.json'),
-                                            contents => {
-                                                let json;
-                                                try {
-                                                    json = JSON.parse(contents);
-                                                } catch (error) {
-                                                    if (exists)
-                                                        return Promise.resolve(contents);
-                                                    json = {};
-                                                }
+                                                let success = false;
+                                                this._filer.lockUpdate(
+                                                        path.join(directory, '.vars.json'),
+                                                        contents => {
+                                                            let json;
+                                                            try {
+                                                                json = JSON.parse(contents);
+                                                            } catch (error) {
+                                                                if (exists)
+                                                                    return Promise.resolve(contents);
+                                                                json = {};
+                                                            }
 
-                                                success = true;
-                                                json[name] = info;
-                                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                            },
-                                            { mode: this.fileMode, uid: this.user, gid: this.group }
-                                            )
-                                            .then(() => {
-                                                if (success)
-                                                    return resolve();
+                                                            success = true;
+                                                            json[name] = info;
+                                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                                        },
+                                                        { mode: this.fileMode, uid: this.user, gid: this.group }
+                                                    )
+                                                    .then(() => {
+                                                        if (success)
+                                                            return resolve();
 
-                                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                            })
-                                            .catch(error => {
-                                                reject(error);
-                                            });
-                                    };
-                                    retry();
-                                });
-                            })
-                            .then(() => {
-                                return this.addHistory(filename, info);
-                            })
-                            .then(id => {
-                                this.notify(filename, info);
-                                return id;
-                            })
-                            .catch(error => {
-                                this._logger.error(`FS error: ${error.message}`);
+                                                        setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                                    })
+                                                    .catch(error => {
+                                                        reject(error);
+                                                    });
+                                            };
+                                            retry();
+                                        });
+                                    })
+                                    .then(() => {
+                                        return this.addHistory(filename, info);
+                                    })
+                                    .then(id => {
+                                        this._index.insert('variable', this._index.constructor.binUuid(info.id), { path: filename });
+                                        this.notify(filename, info);
+                                        return id;
+                                    })
+                                    .catch(error => {
+                                        this._logger.error(`FS error: ${error.message}`);
+                                    });
                             });
                     });
             });
@@ -544,28 +558,42 @@ class Directory extends EventEmitter {
     /**
      * Get variable
      * @param {string} filename                     Variable path
+     * @param {boolean} [allowHistory=true]         Allow history lookup
      * @param {boolean} [cacheResult=true]          Cache result
      * @return {Promise}
      */
-    get(filename, cacheResult = true) {
+    get(filename, allowHistory = true, cacheResult = true) {
         this._logger.debug('directory', `Getting ${filename}`);
 
         return Promise.resolve()
             .then(() => {
                 if (!this._util.isUuid(filename))
-                    return filename;
+                    return { path: filename };
 
-                let info = this._index.search(this._index.constructor.binUuid(filename));
+                let search = this._index.search(this._index.constructor.binUuid(filename));
+                if (!search)
+                    return null;
+
+                let choices = [ 'variable' ];
+                if (allowHistory)
+                    choices.push('history');
+                if (choices.indexOf(search.type) === -1)
+                    return null;
+
+                return search;
+            })
+            .then(info => {
                 if (!info)
                     return null;
 
-                return info.path;
-            })
-            .then(filename => {
-                console.log(filename);
-                if (!filename)
-                    return null;
+                if (info.type === 'history') {
+                    return this._filer.lockRead(path.join(this.dataDir, info.attr))
+                        .then(contents => {
+                            return JSON.parse(contents).variable;
+                        });
+                }
 
+                let filename = info.path;
                 let name = path.basename(filename);
                 let directory = path.join(this.dataDir, path.dirname(filename));
 
@@ -633,69 +661,90 @@ class Directory extends EventEmitter {
     del(filename) {
         this._logger.debug('directory', `Deleting ${filename}`);
 
-        let name = path.basename(filename);
-        let directory = path.join(this.dataDir, path.dirname(filename));
-
-        return this._cacher.unset(filename)
+        return Promise.resolve()
             .then(() => {
-                this._filer.createDirectory(
-                    directory,
-                    { mode: this.dirMode, uid: this.user, gid: this.group }
-                    )
+                if (!this._util.isUuid(filename))
+                    return { path: filename };
+
+                let search = this._index.search(this._index.constructor.binUuid(filename));
+                if (!search || search.type !== 'variable')
+                    return null;
+
+                return search;
+            })
+            .then(info => {
+                if (!info)
+                    return null;
+
+                let id;
+                let filename = info.path;
+                let name = path.basename(filename);
+                let directory = path.join(this.dataDir, path.dirname(filename));
+
+                return this._cacher.unset(filename)
                     .then(() => {
-                        try {
-                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
-                        } catch (error) {
-                            return;
-                        }
+                        this._filer.createDirectory(
+                                directory,
+                                { mode: this.dirMode, uid: this.user, gid: this.group }
+                            )
+                            .then(() => {
+                                try {
+                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                } catch (error) {
+                                    return;
+                                }
 
-                        return new Promise((resolve, reject) => {
-                            let tries = 0;
-                            let retry = () => {
-                                if (++tries > this.constructor.dataRetryMax)
-                                    return reject(new Error(`Max retries reached while deleting ${filename}`));
+                                return new Promise((resolve, reject) => {
+                                    let tries = 0;
+                                    let retry = () => {
+                                        if (++tries > this.constructor.dataRetryMax)
+                                            return reject(new Error(`Max retries reached while deleting ${filename}`));
 
-                                let success = false;
-                                this._filer.lockUpdate(
-                                    path.join(directory, '.vars.json'),
-                                    contents => {
-                                        let json;
-                                        try {
-                                            json = JSON.parse(contents);
-                                        } catch (error) {
-                                            return Promise.resolve(contents);
-                                        }
+                                        let success = false;
+                                        this._filer.lockUpdate(
+                                                path.join(directory, '.vars.json'),
+                                                contents => {
+                                                    let json;
+                                                    try {
+                                                        json = JSON.parse(contents);
+                                                    } catch (error) {
+                                                        return Promise.resolve(contents);
+                                                    }
 
-                                        success = true;
-                                        json[name] = null;
-                                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                    },
-                                    { mode: this.fileMode, uid: this.user, gid: this.group }
-                                    )
-                                    .then(() => {
-                                        if (success)
-                                            return resolve();
+                                                    success = true;
+                                                    if (json[name])
+                                                        id = json[name]['id'];
+                                                    json[name] = null;
+                                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                                },
+                                                {mode: this.fileMode, uid: this.user, gid: this.group}
+                                            )
+                                            .then(() => {
+                                                if (success)
+                                                    return resolve();
 
-                                        setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                    })
-                                    .catch(error => {
-                                        reject(error);
-                                    });
-                            };
-                            retry();
-                        });
-                    })
-                    .then(() => {
-                        return this._filer.remove(path.join(filename, '.history'))
-                            .catch(() => {
-                                // do nothing
+                                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                            })
+                                            .catch(error => {
+                                                reject(error);
+                                            });
+                                    };
+                                    retry();
+                                });
+                            })
+                            .then(() => {
+                                return this.clearHistory(filename);
+                            })
+                            .then(() => {
+                                if (id && this._util.isUuid(id))
+                                    return this._index.delete(this._index.constructor.binUuid(id));
+                            })
+                            .then(() => {
+                                this.notify(filename, { value: null, mtime: Math.round(Date.now() / 1000) });
+                            })
+                            .catch(error => {
+                                this._logger.error(`FS error: ${error.message}`);
                             });
-                    })
-                    .then(() => {
-                        this.notify(filename, { value: null, mtime: Math.round(Date.now() / 1000) });
-                    })
-                    .catch(error => {
-                        this._logger.error(`FS error: ${error.message}`);
                     });
             });
     }
@@ -736,7 +785,7 @@ class Directory extends EventEmitter {
     setAttr(filename, name, value) {
         this._logger.debug('directory', `Setting attribute ${name} of ${filename}`);
 
-        return this.get(filename, false)
+        return this.get(filename, false, false)
             .then(info => {
                 if (!info)
                     return null;
@@ -773,7 +822,7 @@ class Directory extends EventEmitter {
     delAttr(filename, name) {
         this._logger.debug('directory', `Deleting attribute ${name} of ${filename}`);
 
-        return this.get(filename)
+        return this.get(filename, false, false)
             .then(info => {
                 if (!info)
                     return null;
@@ -810,6 +859,8 @@ class Directory extends EventEmitter {
             variable: info,
         };
 
+        let history;
+
         return this._filer.createDirectory(
             directory,
             { mode: this.dirMode, uid: this.user, gid: this.group }
@@ -831,15 +882,23 @@ class Directory extends EventEmitter {
                 } else {
                     name = '0001';
                 }
-                name = name + '.json';
+                history = path.join(directory, name + '.json');
 
                 return this._filer.lockWrite(
-                    path.join(directory, name),
+                    history,
                     JSON.stringify(json, undefined, 4) + '\n',
                     { mode: this.fileMode, uid: this.user, gid: this.group }
                 );
             })
             .then(() => {
+                this._index.insert(
+                    'history',
+                    this._index.constructor.binUuid(json.id),
+                    {
+                        path: filename,
+                        attr: history.substring(this.dataDir.length),
+                    }
+                );
                 return json.id;
             });
     }
@@ -870,6 +929,8 @@ class Directory extends EventEmitter {
             mtime: mtime,
         };
 
+        let attrfile, binfile;
+
         return this._filer.createDirectory(
             directory,
             { mode: this.dirMode, uid: this.user, gid: this.group }
@@ -896,21 +957,32 @@ class Directory extends EventEmitter {
                 } else {
                     name = '0001';
                 }
+                attrfile = path.join(directory, name + '.json');
+                binfile = path.join(directory, name + '.bin');
 
                 return Promise.all([
                         this._filer.lockWrite(
-                            path.join(directory, name + '.json'),
+                            attrfile,
                             JSON.stringify(json, undefined, 4) + '\n',
                             { mode: this.fileMode, uid: this.user, gid: this.group }
                         ),
                         this._filer.lockWriteBuffer(
-                            path.join(directory, name + '.bin'),
+                            binfile,
                             buffer,
                             { mode: this.fileMode, uid: this.user, gid: this.group }
                         ),
                     ]);
             })
             .then(() => {
+                this._index.insert(
+                    'file',
+                    this._index.constructor.binUuid(json.id),
+                    {
+                        path: filename,
+                        attr: attrfile.substring(this.dataDir.length),
+                        bin: binfile.substring(this.dataDir.length),
+                    }
+                );
                 return json.id;
             });
     }
@@ -923,61 +995,77 @@ class Directory extends EventEmitter {
     download(filename) {
         this._logger.debug('directory', `Downloading from ${filename}`);
 
-        let directory = path.join(this.dataDir, filename, '.files');
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(filename))
+                    return { path: filename };
 
-        let loadDir = dir => {
-            return new Promise((resolve, reject) => {
-                try {
-                    let name;
-                    let files = fs.readdirSync(dir);
-                    let numbers = [];
-                    let reBin = /^(\d+)\.bin$/, reDir = /^(\d+)$/;
-                    for (let file of files) {
-                        let result = reBin.exec(file);
-                        if (result)
-                            numbers.push(result[1]);
-                    }
-                    if (numbers.length) {
-                        numbers.sort();
-                        name = numbers[numbers.length - 1] + '.bin';
-                        this._filer.lockReadBuffer(path.join(dir, name))
-                            .then(buffer => {
-                                resolve(buffer);
-                            })
-                            .catch(error => {
-                                this._logger.error(`FS error: ${error.message}`);
-                                resolve(null);
-                            });
-                    } else {
-                        numbers = [];
-                        for (let file of files) {
-                            let result = reDir.exec(file);
-                            if (result)
-                                numbers.push(result[1]);
-                        }
-                        if (numbers.length) {
-                            numbers.sort();
-                            name = numbers[numbers.length - 1];
-                            loadDir(path.join(dir, name))
-                                .then(buffer => {
-                                    resolve(buffer);
-                                })
-                                .catch(error => {
-                                    this._logger.error(`FS error: ${error.message}`);
+                let search = this._index.search(this._index.constructor.binUuid(filename));
+                if (!search || search.type !== 'file')
+                    return null;
+
+                return search;
+            })
+            .then(info => {
+                if (!info)
+                    return null;
+                if (info.bin)
+                    return path.join(this.dataDir, info.bin);
+
+                let directory = path.join(this.dataDir, info.path, '.files');
+
+                let loadDir = dir => {
+                    return new Promise((resolve, reject) => {
+                        try {
+                            let name;
+                            let files = fs.readdirSync(dir);
+                            let numbers = [];
+                            let reBin = /^(\d+)\.bin$/, reDir = /^(\d+)$/;
+                            for (let file of files) {
+                                let result = reBin.exec(file);
+                                if (result)
+                                    numbers.push(result[1]);
+                            }
+                            if (numbers.length) {
+                                numbers.sort();
+                                resolve(path.join(dir, numbers[numbers.length - 1] + '.bin'));
+                            } else {
+                                numbers = [];
+                                for (let file of files) {
+                                    let result = reDir.exec(file);
+                                    if (result)
+                                        numbers.push(result[1]);
+                                }
+                                if (numbers.length) {
+                                    numbers.sort();
+                                    name = numbers[numbers.length - 1];
+                                    loadDir(path.join(dir, name))
+                                        .then(filename => {
+                                            resolve(filename);
+                                        })
+                                        .catch(error => {
+                                            this._logger.error(`FS error: ${error.message}`);
+                                            resolve(null);
+                                        });
+                                } else {
                                     resolve(null);
-                                });
-                        } else {
+                                }
+                            }
+                        } catch (error) {
+                            this._logger.error(`FS error: ${error.message}`);
                             resolve(null);
                         }
-                    }
-                } catch (error) {
-                    this._logger.error(`FS error: ${error.message}`);
-                    resolve(null);
-                }
-            });
-        };
+                    });
+                };
 
-        return loadDir(directory);
+                return loadDir(directory);
+            })
+            .then(filename => {
+                if (!filename)
+                    return null;
+
+                return this._filer.lockReadBuffer(filename);
+            });
     }
 
     /**

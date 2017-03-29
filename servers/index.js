@@ -27,6 +27,9 @@ class Index extends EventEmitter {
         super();
 
         this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+        this.needSave = false;
+
+        this._saving = false;
 
         this._name = null;
         this._app = app;
@@ -100,6 +103,7 @@ class Index extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('index', 'Starting the server');
+                this._saveTimer = setInterval(this.onSaveTimer.bind(this), 1000);
             });
     }
 
@@ -174,6 +178,73 @@ class Index extends EventEmitter {
         if (!result.data)
             result.data = JSON.parse(result.buffer);
         return result.data;
+    }
+
+    insert(type, id, info) {
+        if (this.tree.search(id).length)
+            return;
+
+        this._logger.debug('index', `Inserting ${type} of ${info.path}`);
+        switch (type) {
+            case 'variable':
+                this.tree.insert(id, {
+                    buffer: null,
+                    data: {
+                        type: type,
+                        path: info.path,
+                    }
+                });
+                break;
+            case 'history':
+                this.tree.insert(id, {
+                    buffer: null,
+                    data: {
+                        type: type,
+                        path: info.path,
+                        attr: info.history,
+                    }
+                });
+                break;
+            case 'file':
+                this.tree.insert(id, {
+                    buffer: null,
+                    data: {
+                        type: type,
+                        path: info.path,
+                        attr: info.attr,
+                        bin: info.bin,
+                    }
+                });
+                break;
+            default:
+                throw new Error(`Invalid type: ${type}`);
+        }
+        this.needSave = true;
+    }
+
+    delete(id) {
+        let search = this.tree.search(id);
+        if (search.length) {
+            this.tree.delete(id);
+            this.needSave = true;
+        }
+    }
+
+    onSaveTimer() {
+        if (this._saving || !this.needSave)
+            return;
+
+        this._saving = true;
+        this.save()
+            .then(
+                () => {
+                    this._saving = false;
+                },
+                error => {
+                    this._saving = false;
+                    this._logger.error(error);
+                }
+            );
     }
 
     _serialize(node) {
