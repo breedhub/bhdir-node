@@ -276,22 +276,46 @@ class Directory extends EventEmitter {
             .then(() => {
                 this._logger.debug('directory', 'Starting the server');
 
-                return this._filer.lockRead(path.join(this.dataDir, '.bhdir.json'))
-                    .then(contents => {
-                        let json = JSON.parse(contents);
-                        if (json.directory.upgrading) {
+                let satisfied = false, upgrading = false;
+                return this._filer.lockUpdate(
+                        path.join(this.dataDir, '.bhdir.json'),
+                        contents => {
+                            let info;
+                            try {
+                                info = JSON.parse(contents);
+                                if (typeof info !== 'object')
+                                    return Promise.reject(new Error('.bhdir.json is damaged'));
+                            } catch (error) {
+                                info = {};
+                            }
+
+                            if (!info.directory)
+                                info.directory = {};
+                            if (!info.directory.format)
+                                info.directory.format = 2;
+                            if (!info.directory.upgrading)
+                                info.directory.upgrading = false;
+
+                            satisfied = (info.directory.format === 2);
+                            upgrading = !!info.directory.upgrading;
+
+                            return Promise.resolve(JSON.stringify(info, undefined, 4) + '\n');
+                        }
+                    )
+                    .then(() => {
+                        if (!satisfied) {
+                            return this._app.info('Unsupported directory format - restarting...\n')
+                                .then(() => {
+                                    process.exit(200);
+                                });
+                        }
+                        if (upgrading) {
                             return this._app.info('Directory is being upgraded - restarting...\n')
                                 .then(() => {
                                     process.exit(200);
                                 });
                         }
-                    })
-                    .catch(() => {
-                        return this._app.info('Could not read .bhdir.json - restarting...\n')
-                            .then(() => {
-                                process.exit(200);
-                            });
-                    })
+                    });
             });
     }
 
