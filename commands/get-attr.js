@@ -104,26 +104,30 @@ class GetAttr {
                         }
 
                         let output = '';
-                        if ((args.options['output'] || 'table') === 'table') {
-                            if (args.options['no-header']) {
-                                for (let key of Object.keys(response.results[0])) {
-                                    output += key + ' ' + (typeof response.results[0][key] === 'object' ?
+                        if (response.results[0]) {
+                            if ((args.options['output'] || 'table') === 'table') {
+                                if (args.options['no-header']) {
+                                    for (let key of Object.keys(response.results[0])) {
+                                        output += key + ' ' + (typeof response.results[0][key] === 'object' ?
+                                                JSON.stringify(response.results[0][key]) :
+                                                response.results[0][key]) + '\n';
+                                    }
+                                } else {
+                                    let table = new Table();
+                                    for (let key of Object.keys(response.results[0])) {
+                                        table.cell('Name', key);
+                                        table.cell('Value', (typeof response.results[0][key] === 'object' ?
                                             JSON.stringify(response.results[0][key]) :
-                                            response.results[0][key]) + '\n';
+                                            response.results[0][key]));
+                                        table.newRow();
+                                    }
+                                    output = table.toString();
                                 }
                             } else {
-                                let table = new Table();
-                                for (let key of Object.keys(response.results[0])) {
-                                    table.cell('Name', key);
-                                    table.cell('Value', (typeof response.results[0][key] === 'object' ?
-                                        JSON.stringify(response.results[0][key]) :
-                                        response.results[0][key]));
-                                    table.newRow();
-                                }
-                                output = table.toString();
+                                output = JSON.stringify(response.results[0], undefined, 4);
                             }
                         } else {
-                            output = JSON.stringify(response.results[0], undefined, 4);
+                            output += response.results[0];
                         }
 
                         output = output.trim();

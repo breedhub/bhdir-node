@@ -71,7 +71,7 @@ class Ls {
             .run(argv);
 
         if (args.targets.length < 2)
-            return this._help.helpGet(argv);
+            return this._help.helpLs(argv);
 
         let lsPath = args.targets[1];
 

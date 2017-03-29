@@ -61,7 +61,7 @@ class Download {
             .run(argv);
 
         if (args.targets.length < 3)
-            return this._help.helpUpload(argv);
+            return this._help.helpDownload(argv);
 
         let downloadPath = args.targets[1];
         let downloadFile = args.targets[2];

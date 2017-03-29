@@ -79,7 +79,7 @@ class Directory extends EventEmitter {
      * @type {string[]}
      */
     static get protectedAttrs() {
-        return [ 'id', 'ctime', 'mtime' ];
+        return [ 'id', 'value', 'ctime', 'mtime' ];
     }
     /**
      * Initialize the server
@@ -737,7 +737,7 @@ class Directory extends EventEmitter {
                             })
                             .then(() => {
                                 if (id && this._util.isUuid(id))
-                                    return this._index.delete(this._index.constructor.binUuid(id));
+                                    return this._index.del(this._index.constructor.binUuid(id));
                             })
                             .then(() => {
                                 this.notify(filename, { value: null, mtime: Math.round(Date.now() / 1000) });
@@ -772,7 +772,7 @@ class Directory extends EventEmitter {
                                 let json = JSON.parse(contents);
                                 let promises = [];
                                 for (let key of Object.keys(json))
-                                    promises.push(this.del(path.join(file.substring(this.dataDir), key)));
+                                    promises.push(this.del(path.join(file.substring(this.dataDir.length), key)));
                                 if (promises.length)
                                     return Promise.all(promises);
                             });
@@ -932,7 +932,7 @@ class Directory extends EventEmitter {
     clearHistory(filename) {
         this._logger.debug('directory', `Clearing history of ${filename}`);
 
-        let re = /^(.+)\.json$/;
+        let re = /^(\d+)\.json$/;
         return this._filer.process(
             path.join(this.dataDir, filename, '.history'),
             file => {
@@ -943,7 +943,7 @@ class Directory extends EventEmitter {
                     .then(contents => {
                         let json = JSON.parse(contents);
                         if (this._util.isUuid(json['id']))
-                            this._index.delete(this._index.constructor.bin(json['id']));
+                            this._index.del(this._index.constructor.binUuid(json['id']));
                     });
             }
         );
@@ -958,78 +958,86 @@ class Directory extends EventEmitter {
     uploadFile(filename, buffer) {
         this._logger.debug('directory', `Uploading to ${filename}`);
 
-        let now = new Date();
-        let mtime = Math.round(now.getTime() / 1000);
-        let directory = path.join(
-            this.dataDir,
-            filename,
-            '.files',
-            now.getUTCFullYear().toString(),
-            this._padNumber(now.getUTCMonth() + 1, 2),
-            this._padNumber(now.getUTCDate(), 2),
-            this._padNumber(now.getUTCHours(), 2)
-        );
+        return this.get(filename)
+            .then(info => {
+                if (!info || info.value === null)
+                    return null;
 
-        let json = {
-            id: uuid.v4(),
-            mtime: mtime,
-        };
-
-        let attrfile, binfile;
-
-        return this._filer.createDirectory(
-            directory,
-            { mode: this.dirMode, uid: this.user, gid: this.group }
-            )
-            .then(() => {
-                let name;
-                let files = fs.readdirSync(directory);
-                let numbers = [];
-                let reBin = /^(\d+)\.bin/, reJson = /^(\d+)\.json/;
-                for (let file of files) {
-                    let result = reBin.exec(file);
-                    if (!result)
-                        result = reJson.exec(file);
-                    if (!result)
-                        continue;
-
-                    let number = parseInt(result[1]);
-                    if (numbers.indexOf(number) === -1)
-                        numbers.push(number);
-                }
-                if (numbers.length) {
-                    numbers.sort();
-                    name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
-                } else {
-                    name = '0001';
-                }
-                attrfile = path.join(directory, name + '.json');
-                binfile = path.join(directory, name + '.bin');
-
-                return Promise.all([
-                        this._filer.lockWrite(
-                            attrfile,
-                            JSON.stringify(json, undefined, 4) + '\n',
-                            { mode: this.fileMode, uid: this.user, gid: this.group }
-                        ),
-                        this._filer.lockWriteBuffer(
-                            binfile,
-                            buffer,
-                            { mode: this.fileMode, uid: this.user, gid: this.group }
-                        ),
-                    ]);
-            })
-            .then(() => {
-                this._index.insert(
-                    'file',
-                    this._index.constructor.binUuid(json.id),
-                    {
-                        path: filename,
-                        attr: attrfile.substring(this.dataDir.length),
-                        bin: binfile.substring(this.dataDir.length),
-                    }
+                let now = new Date();
+                let mtime = Math.round(now.getTime() / 1000);
+                let directory = path.join(
+                    this.dataDir,
+                    filename,
+                    '.files',
+                    now.getUTCFullYear().toString(),
+                    this._padNumber(now.getUTCMonth() + 1, 2),
+                    this._padNumber(now.getUTCDate(), 2),
+                    this._padNumber(now.getUTCHours(), 2)
                 );
-                return json.id;
+
+                let json = {
+                    id: uuid.v4(),
+                    mtime: mtime,
+                    bin: null,
+                };
+
+                let attrfile, binfile;
+
+                return this._filer.createDirectory(
+                    directory,
+                    { mode: this.dirMode, uid: this.user, gid: this.group }
+                    )
+                    .then(() => {
+                        let name;
+                        let files = fs.readdirSync(directory);
+                        let numbers = [];
+                        let reBin = /^(\d+)\.bin/, reJson = /^(\d+)\.json/;
+                        for (let file of files) {
+                            let result = reBin.exec(file);
+                            if (!result)
+                                result = reJson.exec(file);
+                            if (!result)
+                                continue;
+
+                            let number = parseInt(result[1]);
+                            if (numbers.indexOf(number) === -1)
+                                numbers.push(number);
+                        }
+                        if (numbers.length) {
+                            numbers.sort();
+                            name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
+                        } else {
+                            name = '0001';
+                        }
+                        attrfile = path.join(directory, name + '.json');
+                        binfile = path.join(directory, name + '.bin');
+                        json.bin = binfile.substring(this.dataDir.length);
+
+                        return Promise.all([
+                            this._filer.lockWrite(
+                                attrfile,
+                                JSON.stringify(json, undefined, 4) + '\n',
+                                { mode: this.fileMode, uid: this.user, gid: this.group }
+                            ),
+                            this._filer.lockWriteBuffer(
+                                binfile,
+                                buffer,
+                                { mode: this.fileMode, uid: this.user, gid: this.group }
+                            ),
+                        ]);
+                    })
+                    .then(() => {
+                        this._index.insert(
+                            'file',
+                            this._index.constructor.binUuid(json.id),
+                            {
+                                path: filename,
+                                attr: attrfile.substring(this.dataDir.length),
+                                bin: binfile.substring(this.dataDir.length),
+                            }
+                        );
+                        return json.id;
+                    });
             });
     }
 
@@ -1122,7 +1130,7 @@ class Directory extends EventEmitter {
     clearFiles(filename) {
         this._logger.debug('directory', `Clearing files of ${filename}`);
 
-        let re = /^(.+)\.json$/;
+        let re = /^(\d+)\.json$/;
         return this._filer.process(
             path.join(this.dataDir, filename, '.files'),
             file => {
@@ -1133,7 +1141,7 @@ class Directory extends EventEmitter {
                     .then(contents => {
                         let json = JSON.parse(contents);
                         if (this._util.isUuid(json['id']))
-                            this._index.delete(this._index.constructor.bin(json['id']));
+                            this._index.del(this._index.constructor.binUuid(json['id']));
                     });
             }
         );

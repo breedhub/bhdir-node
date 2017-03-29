@@ -14,11 +14,13 @@ class Download {
      * @param {App} app                             The application
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
+     * @param {Util} util                           Util service
      */
-    constructor(app, config, logger) {
+    constructor(app, config, logger, util) {
         this._app = app;
         this._config = config;
         this._logger = logger;
+        this._util = util;
     }
 
     /**
@@ -34,7 +36,7 @@ class Download {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger' ];
+        return [ 'app', 'config', 'logger', 'util' ];
     }
 
     /**
@@ -70,10 +72,10 @@ class Download {
 
         let name = message.args[0];
 
-        if (!this.directory.validatePath(name))
+        if (!this._util.isUuid(name) && !this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.download(name)
+        this.directory.downloadFile(name)
             .then(result => {
                 if (!result)
                     return reply(false, 'File not found');

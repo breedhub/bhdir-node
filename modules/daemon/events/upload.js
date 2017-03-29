@@ -74,7 +74,7 @@ class Upload {
         if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.upload(name, Buffer.from(contents, 'base64'))
+        this.directory.uploadFile(name, Buffer.from(contents, 'base64'))
             .then(id => {
                 reply(true, id);
             })

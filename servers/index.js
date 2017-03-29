@@ -112,15 +112,14 @@ class Index extends EventEmitter {
      * @return {Promise}
      */
     build() {
+        this._logger.debug('index', 'Building index');
+
         let tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
         let messages = [];
         return this._loadDir(this._directory.dataDir, tree, messages)
             .then(() => {
                 this.tree = tree;
                 return this.save();
-            })
-            .then(() => {
-                return this.load();
             })
             .then(() => {
                 return messages;
@@ -130,6 +129,8 @@ class Index extends EventEmitter {
     save() {
         if (!this.tree.tree.data.length)
             return Promise.resolve();
+
+        this._logger.debug('index', 'Saving index');
 
         let hash, tree;
         try {
@@ -148,6 +149,8 @@ class Index extends EventEmitter {
     }
 
     load() {
+        this._logger.debug('index', 'Loading index');
+
         return this._filer.lockReadBuffer(path.join(this._directory.dataDir, '.index.1'))
             .then(buffer => {
                 let hashBuffer = buffer.slice(0, 16);
@@ -158,17 +161,14 @@ class Index extends EventEmitter {
                 if (!hashBuffer.equals(hash.digest()))
                     throw new Error('Index has wrong checksum');
 
-                let node = this._deserialize({ buffer: buffer, offset: 0 });
-                if (node) {
-                    this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+                let node = this._deserialize({ buffer: treeBuffer, offset: 0 }, null);
+                if (node)
                     this.tree.tree = node;
-                }
             });
     }
 
     search(id) {
-        if (!this.tree)
-            return null;
+        this._logger.debug('index', `Searching for ${id}`);
 
         let search = this.tree.search(id);
         let result = search.length ? search[0] : null;
@@ -184,7 +184,7 @@ class Index extends EventEmitter {
         if (this.tree.search(id).length)
             return;
 
-        this._logger.debug('index', `Inserting ${type} of ${info.path}`);
+        this._logger.debug('index', `Inserting ${type} of ${info.path} as ${id}`);
         switch (type) {
             case 'variable':
                 this.tree.insert(id, {
@@ -201,7 +201,7 @@ class Index extends EventEmitter {
                     data: {
                         type: type,
                         path: info.path,
-                        attr: info.history,
+                        attr: info.attr,
                     }
                 });
                 break;
@@ -222,9 +222,10 @@ class Index extends EventEmitter {
         this.needSave = true;
     }
 
-    delete(id) {
+    del(id) {
         let search = this.tree.search(id);
         if (search.length) {
+            this._logger.debug('index', `Deleting ${id}`);
             this.tree.delete(id);
             this.needSave = true;
         }
@@ -250,7 +251,7 @@ class Index extends EventEmitter {
 
     _serialize(node) {
         if (!node)
-            return Buffer.alloc(16, 0);
+            return this.constructor.nullId;
 
         let buffer = node.key.toBuffer();
         if (buffer.length !== 16)
@@ -264,15 +265,14 @@ class Index extends EventEmitter {
         return Buffer.concat([ buffer, node.data[0].buffer, Buffer.alloc(1, 0), this._serialize(node.left), this._serialize(node.right) ]);
     }
 
-    _deserialize(info) {
+    _deserialize(info, parent) {
         let id = info.buffer.slice(info.offset, info.offset + 16);
+        info.offset += 16;
         if (id.equals(this.constructor.nullId))
             return null;
 
-        let ClassFunc = this.tree.tree.constructor;
-        let node = new ClassFunc({ unique: true, compareKeys: this.constructor.compareKeys });
+        let node = this.tree.tree.createSimilar();
 
-        info.offset += 16;
         let start = info.offset;
         while (true) {
             if (info.offset >= info.buffer.length)
@@ -283,13 +283,11 @@ class Index extends EventEmitter {
         }
 
         node.key = bignum.fromBuffer(id);
-        node.data = { buffer: info.buffer.slice(start, info.offset - 1), data: null };
-        let left = this._deserialize(info);
-        if (left)
-            node.left = left;
-        let right = this._deserialize(info);
-        if (right)
-            node.right = right;
+        node.data = [ { buffer: info.buffer.slice(start, info.offset - 1), data: null } ];
+        node.parent = parent;
+
+        node.left = this._deserialize(info, node);
+        node.right = this._deserialize(info, node);
 
         return node;
     }
@@ -325,6 +323,7 @@ class Index extends EventEmitter {
                     .then(stats => {
                         promises = [];
                         let directory = dir.substring(this._directory.dataDir.length) || '/';
+                        let re = /^(\d+)\.json$/;
                         for (let i = 0; i < files.length; i++) {
                             if (stats[i].isDirectory()) {
                                 promises.push(this._loadDir(path.join(dir, files[i]), tree, messages));
@@ -340,20 +339,77 @@ class Index extends EventEmitter {
                                             }
 
                                             for (let key of Object.keys(json)) {
+                                                if (!json[key])
+                                                    continue;
                                                 let varId = json[key]['id'];
                                                 if (!this._util.isUuid(varId))
                                                     continue;
+
                                                 let varName = path.join(directory, key);
                                                 tree.insert(this.constructor.binUuid(varId), {
                                                     buffer: null,
                                                     data: {
-                                                        type: 'var',
+                                                        type: 'variable',
                                                         path: varName,
                                                     }
                                                 });
                                             }
                                         })
                                 );
+                            } else if (re.test(files[i])) {
+                                let end;
+                                if ((end = directory.indexOf('/.history/')) !== -1) {
+                                    promises.push(
+                                        this._filer.lockRead(path.join(dir, files[i]))
+                                            .then(contents => {
+                                                let json;
+                                                try {
+                                                    json = JSON.parse(contents);
+                                                } catch (error) {
+                                                    return messages.push(`Could not read ${path.join(dir, files[i])}`);
+                                                }
+
+                                                let historyId = json['id'];
+                                                if (!this._util.isUuid(historyId))
+                                                    return;
+
+                                                tree.insert(this.constructor.binUuid(historyId), {
+                                                    buffer: null,
+                                                    data: {
+                                                        type: 'history',
+                                                        path: directory.substring(0, end),
+                                                        attr: path.join(directory, files[i]),
+                                                    }
+                                                });
+                                            })
+                                    );
+                                } else if ((end = directory.indexOf('/.files/')) !== -1) {
+                                        promises.push(
+                                            this._filer.lockRead(path.join(dir, files[i]))
+                                                .then(contents => {
+                                                    let json;
+                                                    try {
+                                                        json = JSON.parse(contents);
+                                                    } catch (error) {
+                                                        return messages.push(`Could not read ${path.join(dir, files[i])}`);
+                                                    }
+
+                                                    let fileId = json['id'];
+                                                    if (!this._util.isUuid(fileId))
+                                                        return;
+
+                                                    tree.insert(this.constructor.binUuid(fileId), {
+                                                        buffer: null,
+                                                        data: {
+                                                            type: 'file',
+                                                            path: directory.substring(0, end),
+                                                            attr: path.join(directory, files[i]),
+                                                            bin: json['bin'],
+                                                        }
+                                                    });
+                                                })
+                                        );
+                                }
                             }
                         }
 
@@ -361,6 +417,13 @@ class Index extends EventEmitter {
                             return Promise.all(promises);
                     });
             });
+    }
+
+    _inOrder(node) {
+        if (!node)
+            return '';
+
+        return this._inOrder(node.left) + node.key + ' ' + this._inOrder(node.right);
     }
 
     /**

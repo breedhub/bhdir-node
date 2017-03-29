@@ -14,11 +14,13 @@ class GetAttr {
      * @param {App} app                             The application
      * @param {object} config                       Configuration
      * @param {Logger} logger                       Logger service
+     * @param {Util} util                           Util service
      */
-    constructor(app, config, logger) {
+    constructor(app, config, logger, util) {
         this._app = app;
         this._config = config;
         this._logger = logger;
+        this._util = util;
     }
 
     /**
@@ -34,7 +36,7 @@ class GetAttr {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger' ];
+        return [ 'app', 'config', 'logger', 'util' ];
     }
 
     /**
@@ -71,7 +73,7 @@ class GetAttr {
         let filename = message.args[0];
         let name = message.args[1];
 
-        if (!this.directory.validatePath(filename))
+        if (!this._util.isUuid(filename) && !this.directory.validatePath(filename))
             return reply(false, 'Invalid path');
 
         Promise.resolve()
