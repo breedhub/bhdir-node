@@ -733,7 +733,7 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(() => {
-                                return this.clearHistory(filename);
+                                return Promise.all([ this.clearHistory(filename), this.clearFiles(filename) ]);
                             })
                             .then(() => {
                                 if (id && this._util.isUuid(id))
@@ -758,6 +758,27 @@ class Directory extends EventEmitter {
         this._logger.debug('directory', `Removing ${filename}`);
 
         return this.del(filename)
+            .then(() => {
+                return this._filer.process(
+                    path.join(this.dataDir, filename),
+                    file => {
+                        let dir = path.dirname(file);
+                        let base = path.basename(file);
+                        if (dir.indexOf('/.') !== -1 || base !== '.vars.json')
+                            return Promise.resolve();
+
+                        return this._filer.lockRead(file)
+                            .then(contents => {
+                                let json = JSON.parse(contents);
+                                let promises = [];
+                                for (let key of Object.keys(json))
+                                    promises.push(this.del(path.join(file.substring(this.dataDir), key)));
+                                if (promises.length)
+                                    return Promise.all(promises);
+                            });
+                    }
+                )
+            })
             .then(() => {
                 return this._filer.remove(path.join(this.dataDir, filename))
                     .catch(() => {
@@ -904,12 +925,37 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Clear all the history
+     * @param {string} filename                     Variable path
+     * @return {Promise}
+     */
+    clearHistory(filename) {
+        this._logger.debug('directory', `Clearing history of ${filename}`);
+
+        let re = /^(.+)\.json$/;
+        return this._filer.process(
+            path.join(this.dataDir, filename, '.history'),
+            file => {
+                if (!re.test(path.basename(file)))
+                    return Promise.resolve();
+
+                return this._filer.lockRead(file)
+                    .then(contents => {
+                        let json = JSON.parse(contents);
+                        if (this._util.isUuid(json['id']))
+                            this._index.delete(this._index.constructor.bin(json['id']));
+                    });
+            }
+        );
+    }
+
+    /**
      * Upload a file
      * @param {string} filename                     Variable path
      * @param {Buffer} buffer                       File
      * @return {Promise}                            Resolves to id
      */
-    upload(filename, buffer) {
+    uploadFile(filename, buffer) {
         this._logger.debug('directory', `Uploading to ${filename}`);
 
         let now = new Date();
@@ -992,7 +1038,7 @@ class Directory extends EventEmitter {
      * @param {string} filename                     Variable path
      * @return {Promise}                            Resolves Buffer
      */
-    download(filename) {
+    downloadFile(filename) {
         this._logger.debug('directory', `Downloading from ${filename}`);
 
         return Promise.resolve()
@@ -1066,6 +1112,31 @@ class Directory extends EventEmitter {
 
                 return this._filer.lockReadBuffer(filename);
             });
+    }
+
+    /**
+     * Clear all uploaded files
+     * @param {string} filename                     Variable path
+     * @return {Promise}
+     */
+    clearFiles(filename) {
+        this._logger.debug('directory', `Clearing files of ${filename}`);
+
+        let re = /^(.+)\.json$/;
+        return this._filer.process(
+            path.join(this.dataDir, filename, '.files'),
+            file => {
+                if (!re.test(path.basename(file)))
+                    return Promise.resolve();
+
+                return this._filer.lockRead(file)
+                    .then(contents => {
+                        let json = JSON.parse(contents);
+                        if (this._util.isUuid(json['id']))
+                            this._index.delete(this._index.constructor.bin(json['id']));
+                    });
+            }
+        );
     }
 
     /**
