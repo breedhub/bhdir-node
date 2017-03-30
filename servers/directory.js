@@ -998,11 +998,18 @@ class Directory extends EventEmitter {
     uploadFile(filename, buffer) {
         this._logger.debug('directory', `Uploading to ${filename}`);
 
-        return this.get(filename)
-            .then(info => {
-                if (!info || info.value === null)
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(filename))
+                    return filename;
+
+                let search = this._index.search(this._index.constructor.binUuid(filename));
+                if (!search || search.type !== 'variable')
                     return null;
 
+                return search.path;
+            })
+            .then(filename => {
                 let now = new Date();
                 let mtime = Math.round(now.getTime() / 1000);
                 let directory = path.join(
