@@ -54,6 +54,11 @@ class GetAttr {
                 type: 'boolean',
             })
             .option({
+                name: 'attr',
+                short: 'a',
+                type: 'string',
+            })
+            .option({
                 name: 'output',
                 short: 'o',
                 type: 'string',
@@ -74,7 +79,7 @@ class GetAttr {
             return this._help.helpGetAttr(argv);
 
         let getPath = args.targets[1];
-        let getName = args.targets.length >= 3 ? args.targets[2] : null;
+        let getName = args.options['attr'] || null;
 
         let request = {
             id: uuid.v1(),

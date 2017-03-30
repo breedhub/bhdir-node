@@ -245,7 +245,7 @@ class Help {
      */
     helpGetAttr(argv) {
         return this._app.info(
-                'Usage:\tbhdirctl get-attr <path> [<name>] [-o table|json] [-n]\n\n' +
+                'Usage:\tbhdirctl get-attr <path> [-a <name>] [-o table|json] [-n]\n\n' +
                 '\tGet attribute value. Returns all the attributes if no name provided, with table formatting by default.\n' +
                 '\tWhen formatting is table -n disables header\n'
             )
