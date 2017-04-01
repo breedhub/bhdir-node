@@ -29,6 +29,8 @@ class Directory extends EventEmitter {
     constructor(app, config, logger, filer, runner, redis, cacher, util) {
         super();
 
+        this.default = null;
+        this.directories = new Map();
         this.waiting = new Map();
 
         this._name = null;
@@ -97,42 +99,81 @@ class Directory extends EventEmitter {
                     throw new Error('Could not read bhdir.conf');
                 }
 
-                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
-                this.rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
-                if (!this.rootDir)
-                    throw new Error('No root parameter in directory section of bhdir.conf');
-
-                this.dataDir = path.join(this.rootDir, 'data');
-                this.stateDir = path.join(this.rootDir, 'state');
-
-                this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '770', 8);
-                if (isNaN(this.dirMode))
-                    this.dirMode = null;
-                this.fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '660', 8);
-                if (isNaN(this.fileMode))
-                    this.fileMode = null;
-
-                let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
-                let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
-
-                let syncUser = bhdirConfig.resilio && bhdirConfig.resilio.user;
-                this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
-
                 let updateConf = false;
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+
+                if (bhdirConfig.directory) {
+                    this.rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
+                    if (!this.rootDir)
+                        throw new Error('No root parameter in directory section of bhdir.conf');
+
+                    this.dataDir = path.join(this.rootDir, 'data');
+                    this.stateDir = path.join(this.rootDir, 'state');
+
+                    this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '770', 8);
+                    if (isNaN(this.dirMode))
+                        this.dirMode = null;
+                    this.fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '660', 8);
+                    if (isNaN(this.fileMode))
+                        this.fileMode = null;
+
+                    let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
+                    let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
+
+                    if (user === '999' || group === '999' || group === 'rslsync') { // TODO: Remove this
+                        if (!bhdirConfig.directory)
+                            bhdirConfig.directory = {};
+                        user = bhdirConfig.directory.user = 'rslsync';
+                        group = bhdirConfig.directory.group = 'bhdir';
+                    }
+
+                    bhdirConfig['sync:directory'] = bhdirConfig.directory;
+                    bhdirConfig['sync:directory'].default = true;
+                    delete bhdirConfig.directory;
+                    updateConf = true;
+                } else {
+                    for (let group of Object.keys(bhdirConfig)) {
+                        let index = group.indexOf(':directory');
+                        if (index === -1)
+                            continue;
+
+                        let name = group.substring(0, index);
+                        let info = {};
+                        info.rootDir = bhdirConfig[group].root;
+                        if (!info.rootDir) {
+                            this._logger.error(`No root parameter in ${name} directory section of bhdir.conf`);
+                            continue;
+                        }
+
+                        info.dataDir = path.join(info.rootDir, 'data');
+                        info.stateDir = path.join(info.rootDir, 'state');
+
+                        info.dirMode = parseInt(bhdirConfig[group].dir_mode || '770', 8);
+                        if (isNaN(info.dirMode))
+                            info.dirMode = null;
+                        info.fileMode = parseInt(bhdirConfig[group].file_mode || '660', 8);
+                        if (isNaN(info.fileMode))
+                            info.fileMode = null;
+
+                        info.user = bhdirConfig[group].user || 'root';
+                        info.group = bhdirConfig[group].group || (os.platform() === 'freebsd' ? 'wheel' : 'root');
+
+                        this.directories.set(name, info);
+                        if (!!bhdirConfig[group].default)
+                            this.default = name;
+                    }
+                }
+
                 if ((bhdirConfig.daemon && bhdirConfig.daemon.log_level) !== 'debug') {
                     if (!bhdirConfig.daemon)
                         bhdirConfig.daemon = {};
                     bhdirConfig.daemon.log_level = 'debug';
                     updateConf = true;
                 }
-                if (user === '999' || group === '999' || group === 'rslsync') { // TODO: Remove this
-                    if (!bhdirConfig.directory)
-                        bhdirConfig.directory = {};
-                    user = bhdirConfig.directory.user = 'rslsync';
-                    group = bhdirConfig.directory.group = 'bhdir';
-                    updateConf = true;
-                }
-                if (!syncUser) {
+
+                this.syncUser = bhdirConfig.resilio && bhdirConfig.resilio.user;
+                this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
+                if (!this.syncUser) {
                     if (!bhdirConfig.resilio)
                         bhdirConfig.resilio = {};
                     bhdirConfig.resilio.user = 'rslsync';
@@ -153,69 +194,55 @@ class Directory extends EventEmitter {
                         });
                 }
 
-                return Promise.resolve()
-                    .then(() => {
-                        if (!group)
-                            return;
+                return Array.from(this.directories.keys()).reduce(
+                    (prev, cur) => {
+                        let info = this.directories.get(cur);
+                        return prev.then(() => {
+                                if (!info.group)
+                                    return;
 
-                        if (os.platform() === 'freebsd')
-                            return this._runner.exec('pw', [ 'groupadd', group ]);
+                                if (os.platform() === 'freebsd')
+                                    return this._runner.exec('pw', [ 'groupadd', info.group ]);
 
-                        return this._runner.exec('groupadd', [ group ]);
-                    })
-                    .then(() => {
-                        if (!this.group || !this.syncUser)
-                            return;
+                                return this._runner.exec('groupadd', [ info.group ]);
+                            })
+                            .then(() => {
+                                if (!info.group || !this.syncUser)
+                                    return;
 
-                        if (os.platform() === 'freebsd')
-                            return this._runner.exec('pw', [ 'groupmod', group, '-m', syncUser ]);
+                                if (os.platform() === 'freebsd')
+                                    return this._runner.exec('pw', [ 'groupmod', info.group, '-m', this.syncUser ]);
 
-                        return this._runner.exec('usermod', [ '-G', group, '-a', syncUser ]);
-                    })
-                    .then(() => {
-                        return Promise.all([
-                            this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
-                            this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
-                            this._runner.exec('grep', [ '-E', `^${syncUser}:`, '/etc/passwd' ]),
-                        ]);
-                    })
-                    .then(([ userInfo, groupInfo, syncUserInfo ]) => {
-                        if (user.length && parseInt(user).toString() === user) {
-                            this.user = parseInt(user);
-                        } else {
-                            let userDb = userInfo.stdout.trim().split(':');
-                            if (userInfo.code !== 0 || userDb.length !== 7) {
-                                this.user = null;
-                                this._logger.error(`Directory user ${user} not found`);
-                            } else {
-                                this.user = parseInt(userDb[2]);
-                            }
-                        }
+                                return this._runner.exec('usermod', [ '-G', info.group, '-a', this.syncUser ]);
+                            })
+                            .then(() => {
+                                return Promise.all([
+                                    this._runner.exec('grep', [ '-E', `^${info.user}:`, '/etc/passwd' ]),
+                                    this._runner.exec('grep', [ '-E', `^${info.group}:`, '/etc/group' ]),
+                                ]);
+                            })
+                            .then(([ userInfo, groupInfo ]) => {
+                                let userDb = userInfo.stdout.trim().split(':');
+                                if (userInfo.code !== 0 || userDb.length !== 7) {
+                                    info.user = null;
+                                    info.uid = null;
+                                    this._logger.error(`Directory user ${info.user} not found`);
+                                } else {
+                                    info.uid = parseInt(userDb[2]);
+                                }
 
-                        if (group.length && parseInt(group).toString() === group) {
-                            this.group = parseInt(group);
-                        } else {
-                            let groupDb = groupInfo.stdout.trim().split(':');
-                            if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                                this.group = null;
-                                this._logger.error(`Directory group ${group} not found`);
-                            } else {
-                                this.group = parseInt(groupDb[2]);
-                            }
-                        }
-
-                        if (syncUser.length && parseInt(syncUser).toString() === syncUser) {
-                            this.syncUser = parseInt(syncUser);
-                        } else {
-                            let syncUserDb = syncUserInfo.stdout.trim().split(':');
-                            if (syncUserInfo.code !== 0 || syncUserDb.length !== 7) {
-                                this.syncUser = null;
-                                this._logger.error(`Resilio user ${syncUser} not found`);
-                            } else {
-                                this.syncUser = parseInt(syncUserDb[2]);
-                            }
-                        }
-                    });
+                                let groupDb = groupInfo.stdout.trim().split(':');
+                                if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                                    info.group = null;
+                                    info.gid = null;
+                                    this._logger.error(`Directory group ${info.group} not found`);
+                                } else {
+                                    info.gid = parseInt(groupDb[2]);
+                                }
+                            });
+                    },
+                    Promise.resolve()
+                );
             });
     }
 
@@ -243,79 +270,78 @@ class Directory extends EventEmitter {
                 Promise.resolve()
             )
             .then(() => {
-                return this._filer.createDirectory(
-                    this.rootDir,
-                    { mode: this.dirMode, uid: this.user, gid: this.group }
-                );
-            })
-            .then(() => {
-                return this._filer.createDirectory(
-                    this.dataDir,
-                    { mode: this.dirMode, uid: this.user, gid: this.group }
-                );
-            })
-            .then(() => {
-                return this._filer.createDirectory(
-                    this.stateDir,
-                    {mode: this.dirMode, uid: this.user, gid: this.group}
-                );
-            })
-            .then(() => {
-                return this._filer.createFile(
-                    path.join(this.dataDir, '.bhdir.json'),
-                    {mode: this.fileMode, uid: this.user, gid: this.group}
-                );
-            })
-            .then(() => {
-                if (this.user !== null && this.group !== null)
-                    return this._runner.exec('chown', [ '-R', `${this.user}:${this.group}`, this.rootDir ]);
-            })
-            .then(() => {
-                return this._runner.exec('chmod', [ '-R', 'ug+rwX', this.rootDir ]);
-            })
-            .then(() => {
                 this._logger.debug('directory', 'Starting the server');
 
-                let satisfied = false, upgrading = false;
-                return this._filer.lockUpdate(
-                        path.join(this.dataDir, '.bhdir.json'),
-                        contents => {
-                            let info;
-                            try {
-                                info = JSON.parse(contents);
-                                if (typeof info !== 'object')
-                                    return Promise.reject(new Error('.bhdir.json is damaged'));
-                            } catch (error) {
-                                info = {};
-                            }
+                return Array.from(this.directories.keys()).reduce(
+                    (prev, cur) => {
+                        let info = this.directories.get(cur);
+                        info.enabled = false;
+                        if (!info.user || !info.group)
+                            return;
 
-                            if (!info.directory)
-                                info.directory = {};
-                            if (!info.directory.format)
-                                info.directory.format = 2;
-                            if (!info.directory.upgrading)
-                                info.directory.upgrading = false;
+                        return prev.then(() => {
+                                return this._filer.createDirectory(
+                                    info.rootDir,
+                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                                );
+                            })
+                            .then(() => {
+                                return this._filer.createDirectory(
+                                    info.dataDir,
+                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                                );
+                            })
+                            .then(() => {
+                                return this._filer.createDirectory(
+                                    info.stateDir,
+                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                                );
+                            })
+                            .then(() => {
+                                return this._filer.createFile(
+                                    path.join(info.dataDir, '.bhdir.json'),
+                                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                                );
+                            })
+                            .then(() => {
+                                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
+                            })
+                            .then(() => {
+                                return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
+                            })
+                            .then(() => {
+                                return this._filer.lockUpdate(
+                                        path.join(info.dataDir, '.bhdir.json'),
+                                        contents => {
+                                            let json;
+                                            try {
+                                                json = JSON.parse(contents);
+                                                if (typeof json !== 'object')
+                                                    return Promise.reject(new Error(`.bhdir.json of ${cur} is damaged`));
+                                            } catch (error) {
+                                                json = {};
+                                            }
 
-                            satisfied = (info.directory.format === 2);
-                            upgrading = !!info.directory.upgrading;
+                                            if (!json.directory)
+                                                json.directory = {};
+                                            if (!json.directory.format)
+                                                json.directory.format = 2;
+                                            if (!json.directory.upgrading)
+                                                json.directory.upgrading = false;
 
-                            return Promise.resolve(JSON.stringify(info, undefined, 4) + '\n');
-                        }
-                    )
-                    .then(() => {
-                        if (!satisfied) {
-                            return this._app.info('Unsupported directory format - restarting...\n')
-                                .then(() => {
-                                    process.exit(200);
-                                });
-                        }
-                        if (upgrading) {
-                            return this._app.info('Directory is being upgraded - restarting...\n')
-                                .then(() => {
-                                    process.exit(200);
-                                });
-                        }
-                    });
+                                            info.enabled = (json.directory.format === 2);
+
+                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                        }
+                                    )
+                                    .then(() => {
+                                        if (!info.enabled)
+                                            this._logger.info(`Unsupported directory format of ${cur} - ignoring...`);
+                                    });
+                            });
+                    },
+                    Promise.resolve()
+                );
             });
     }
 
@@ -325,14 +351,32 @@ class Directory extends EventEmitter {
      * @return {boolean}
      */
     validatePath(filename) {
-        if (typeof filename !== 'string')
+        if (typeof filename !== 'string' || !filename.length)
+            return false;
+
+        let dir, name;
+        if (filename[0] === '/') {
+            if (!this.default)
+                return false;
+            dir = this.default;
+            name = filename;
+        } else {
+            let parts = filename.split(':');
+            dir = parts.shift();
+            if (!parts.length)
+                return false;
+            name = parts.join(':');
+        }
+
+        let info = this.directories.get(dir);
+        if (!info || !info.enabled)
             return false;
 
         return (
-            filename.length &&
-            filename[0] === '/' &&
-            filename[filename.length - 1] !== '/' &&
-            filename.indexOf('/.') === -1
+            name.length &&
+            name[0] === '/' &&
+            name[name.length - 1] !== '/' &&
+            name.indexOf('/.') === -1
         );
     }
 
@@ -353,28 +397,58 @@ class Directory extends EventEmitter {
     }
 
     /**
+     * Get directory and filename from variable name
+     * @param {string} variable                     Variable name
+     * @return {Promise}                            Resolves to [ directory, filename ]
+     */
+    parseVariable(variable) {
+        return new Promise((resolve, reject) => {
+            let dir, name;
+            if (variable[0] === '/') {
+                if (!this.default)
+                    return reject(new Error('Default directory is not specified'));
+                dir = this.default;
+                name = variable;
+            } else {
+                let parts = variable.split(':');
+                dir = parts.shift();
+                if (!parts.length)
+                    return reject(new Error('Empty path is not allowed'));
+                name = parts.join(':');
+            }
+
+            if (!this.validatePath(variable))
+                return reject(new Error('Invalid directory or path'));
+
+            resolve([ dir, name ]);
+        });
+    }
+
+    /**
      * Wait for variable change
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {number} timeout                      Timeout in ms, 0 for no timeout
      * @return {Promise}
      */
-    wait(filename, timeout) {
+    wait(variable, timeout) {
         return Promise.resolve()
             .then(() => {
-                if (!this._util.isUuid(filename))
-                    return filename;
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                let search = this._index.search(this._index.constructor.binUuid(filename));
+                let search = this._index.search(this._index.constructor.binUuid(variable));
                 if (!search || search.type !== 'variable')
-                    return null;
+                    return [ null, null ];
 
-                return search.path;
+                return [ search.directory, search.path ];
             })
-            .then(filename => {
-                if (!filename)
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
                     return;
 
-                return this.get(filename, false)
+                variable = `${repo}:${filename}`;
+
+                return this.get(variable, false)
                     .then(info => {
                         if (!info) {
                             info = {
@@ -382,20 +456,20 @@ class Directory extends EventEmitter {
                                 mtime: 0,
                             };
                         }
-                        let waiting = this.waiting.get(filename);
+                        let waiting = this.waiting.get(variable);
                         if (waiting && (!this.isEqual(waiting.value, info.value) || waiting.mtime !== info.mtime)) {
-                            this.notify(filename, info);
+                            this.notify(variable, info);
                             waiting = null;
                         }
                         if (!waiting) {
                             waiting = info;
                             waiting.handlers = new Set();
-                            this.waiting.set(filename, waiting);
+                            this.waiting.set(variable, waiting);
                         }
 
                         return new Promise((resolve) => {
                             let cb = (timeout, value) => {
-                                this._logger.debug('directory', `Wait on ${filename} timeout: ${timeout}`);
+                                this._logger.debug('directory', `Wait on ${variable} timeout: ${timeout}`);
                                 resolve([ timeout, value ]);
                             };
                             info.handlers.add(cb);
@@ -411,10 +485,11 @@ class Directory extends EventEmitter {
 
     /**
      * Notify about variable change
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {object} info                         Variable
+     * @return {Promise}
      */
-    notify(filename, info) {
+    notify(variable, info) {
         if (!info) {
             info = {
                 value: null,
@@ -422,115 +497,145 @@ class Directory extends EventEmitter {
             };
         }
 
-        let waiting = this.waiting.get(filename);
-        if (!waiting || (this.isEqual(waiting.value, info.value) && waiting.mtime === info.mtime))
-            return;
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-        for (let cb of waiting.handlers)
-            cb(false, info.value);
-        this.waiting.delete(filename);
-    }
+                let search = this._index.search(this._index.constructor.binUuid(variable));
+                if (!search || search.type !== 'variable')
+                    return [ null, null ];
 
-    /**
-     * List variables
-     * @param {string} filename                     Variable path
-     * @return {Promise}
-     */
-    ls(filename) {
-        this._logger.debug('directory', `Listing ${filename}`);
-
-        let directory = path.join(this.dataDir, filename);
-
-        try {
-            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
-        } catch (error) {
-            return Promise.resolve({});
-        }
-
-        return new Promise((resolve, reject) => {
-                let tries = 0;
-                let retry = () => {
-                    if (++tries > this.constructor.dataRetryMax)
-                        return reject(new Error(`Max retries reached while getting ${filename}`));
-
-                    this._filer.lockRead(path.join(directory, '.vars.json'))
-                        .then(contents => {
-                            let json;
-                            try {
-                                json = JSON.parse(contents);
-                            } catch (error) {
-                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                return;
-                            }
-
-                            resolve(json);
-                        })
-                        .catch(error => {
-                            reject(error);
-                        });
-                };
-                retry();
+                return [ search.directory, search.path ];
             })
-            .then(json => {
-                let result = {};
-                for (let key of Object.keys(json)) {
-                    if (!json[key])
-                        continue;
-                    result[key] = json[key]['value'];
-                }
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
 
-                return result;
+                variable = `${repo}:${filename}`;
+
+                let waiting = this.waiting.get(variable);
+                if (!waiting || (this.isEqual(waiting.value, info.value) && waiting.mtime === info.mtime))
+                    return;
+
+                this._logger.debug('directory', `Notifying ${variable}`);
+
+                for (let cb of waiting.handlers)
+                    cb(false, info.value);
+
+                this.waiting.delete(variable);
             });
     }
 
     /**
+     * List variables
+     * @param {string} variable                     Variable name
+     * @return {Promise}
+     */
+    ls(variable) {
+        this._logger.debug('directory', `Listing ${variable}`);
+
+        return this.parseVariable(variable)
+            .then(([ repo, filename ]) => {
+                let info = this.directories.get(repo);
+                let directory = path.join(info.dataDir, filename);
+
+                try {
+                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                } catch (error) {
+                    return Promise.resolve({});
+                }
+
+                return new Promise((resolve, reject) => {
+                    let tries = 0;
+                    let retry = () => {
+                        if (++tries > this.constructor.dataRetryMax)
+                            return reject(new Error(`Max retries reached while getting ${variable}`));
+
+                        this._filer.lockRead(path.join(directory, '.vars.json'))
+                            .then(contents => {
+                                let json;
+                                try {
+                                    json = JSON.parse(contents);
+                                } catch (error) {
+                                    setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                    return;
+                                }
+
+                                resolve(json);
+                            })
+                            .catch(error => {
+                                reject(error);
+                            });
+                    };
+                    retry();
+                })
+                .then(json => {
+                    let result = {};
+                    for (let key of Object.keys(json)) {
+                        if (!json[key])
+                            continue;
+                        result[key] = json[key]['value'];
+                    }
+
+                    return result;
+                });
+        });
+    }
+
+    /**
      * Set variable
-     * @param {string} filename                     Variable path
-     * @param {object} [info]                       Variable
+     * @param {string} variable                     Variable name
+     * @param {object} [attrs]                      Variable attributes
      * @param {*} [value]                           Variable value if info is omitted
      * @return {Promise}                            Resolves to history id
      */
-    set(filename, info, value) {
-        this._logger.debug('directory', `Setting ${filename}`);
-
+    set(variable, attrs, value) {
         return Promise.resolve()
             .then(() => {
-                if (!this._util.isUuid(filename))
-                    return filename;
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                let search = this._index.search(this._index.constructor.binUuid(filename));
+                let search = this._index.search(this._index.constructor.binUuid(variable));
                 if (!search || search.type !== 'variable')
-                    return null;
+                    return [ null, null ];
 
-                return search.path;
+                return [ search.directory, search.path ];
             })
-            .then(filename => {
-                let name = path.basename(filename);
-                let directory = path.join(this.dataDir, path.dirname(filename));
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
 
-                return this.get(filename, false, false)
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Setting ${variable}`);
+
+                let info = this.directories.get(repo);
+                let name = path.basename(filename);
+                let directory = path.join(info.dataDir, path.dirname(filename));
+
+                return this.get(variable, false, false)
                     .then(old => {
                         if (old && (typeof value !== 'undefined') && this.isEqual(old.value, value))
                             return null;
 
-                        if (!info)
-                            info = old;
-                        if (!info)
-                            info = {};
+                        if (!attrs)
+                            attrs = old;
+                        if (!attrs)
+                            attrs = {};
 
-                        info.mtime = Math.round(Date.now() / 1000);
-                        if (!info.ctime)
-                            info.ctime = info.mtime;
-                        if (!info.id)
-                            info.id = uuid.v4();
+                        attrs.mtime = Math.round(Date.now() / 1000);
+                        if (!attrs.ctime)
+                            attrs.ctime = attrs.mtime;
+                        if (!attrs.id)
+                            attrs.id = uuid.v4();
                         if (typeof value !== 'undefined')
-                            info.value = value;
+                            attrs.value = value;
 
-                        return this._cacher.set(filename, info)
+                        return this._cacher.set(variable, attrs)
                             .then(() => {
                                 return this._filer.createDirectory(
                                         directory,
-                                        { mode: this.dirMode, uid: this.user, gid: this.group }
+                                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
                                     )
                                     .then(() => {
                                         let exists;
@@ -545,7 +650,7 @@ class Directory extends EventEmitter {
                                             let tries = 0;
                                             let retry = () => {
                                                 if (++tries > this.constructor.dataRetryMax)
-                                                    return reject(new Error(`Max retries reached while setting ${filename}`));
+                                                    return reject(new Error(`Max retries reached while setting ${variable}`));
 
                                                 let success = false;
                                                 this._filer.lockUpdate(
@@ -561,16 +666,18 @@ class Directory extends EventEmitter {
                                                             }
 
                                                             success = true;
-                                                            json[name] = info;
+                                                            json[name] = attrs;
                                                             return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                         },
-                                                        { mode: this.fileMode, uid: this.user, gid: this.group }
+                                                        { mode: info.fileMode, uid: info.uid, gid: info.gid }
                                                     )
                                                     .then(() => {
                                                         if (success)
                                                             return resolve();
 
-                                                        setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                                        setTimeout(() => {
+                                                            retry();
+                                                        }, this.constructor.dataRetryInterval);
                                                     })
                                                     .catch(error => {
                                                         reject(error);
@@ -580,12 +687,21 @@ class Directory extends EventEmitter {
                                         });
                                     })
                                     .then(() => {
-                                        return this.addHistory(filename, info);
+                                        return this.addHistory(variable, attrs);
                                     })
                                     .then(id => {
-                                        this._index.insert('variable', this._index.constructor.binUuid(info.id), { path: filename });
-                                        this.notify(filename, info);
-                                        return id;
+                                        this._index.insert(
+                                            'variable',
+                                            this._index.constructor.binUuid(attrs.id),
+                                            {
+                                                directory: repo,
+                                                path: filename,
+                                            }
+                                        );
+                                        return this.notify(variable, attrs)
+                                            .then(() => {
+                                                return id;
+                                            });
                                     })
                                     .catch(error => {
                                         this._logger.error(`FS error: ${error.message}`);
@@ -597,50 +713,51 @@ class Directory extends EventEmitter {
 
     /**
      * Get variable
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {boolean} [allowHistory=true]         Allow history lookup
      * @param {boolean} [cacheResult=true]          Cache result
      * @return {Promise}
      */
-    get(filename, allowHistory = true, cacheResult = true) {
-        this._logger.debug('directory', `Getting ${filename}`);
-
+    get(variable, allowHistory = true, cacheResult = true) {
         return Promise.resolve()
             .then(() => {
-                if (!this._util.isUuid(filename))
-                    return { path: filename };
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                let search = this._index.search(this._index.constructor.binUuid(filename));
+                let search = this._index.search(this._index.constructor.binUuid(variable));
                 if (!search)
-                    return null;
+                    return [ null, null ];
 
                 let choices = [ 'variable' ];
                 if (allowHistory)
                     choices.push('history');
                 if (choices.indexOf(search.type) === -1)
-                    return null;
+                    return [ null, null ];
 
-                return search;
+                return [ search.directory, search.path, search.type, search.attr ];
             })
-            .then(info => {
-                if (!info)
-                    return null;
+            .then(([ repo, filename, type, attr ]) => {
+                if (!repo || !filename)
+                    return;
 
-                if (info.type === 'history') {
-                    return this._filer.lockRead(path.join(this.dataDir, info.attr))
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Getting ${variable}`);
+
+                let info = this.directories.get(repo);
+                if (type === 'history') {
+                    return this._filer.lockRead(path.join(info.dataDir, attr))
                         .then(contents => {
                             return JSON.parse(contents).variable;
                         });
                 }
 
-                let filename = info.path;
                 let name = path.basename(filename);
-                let directory = path.join(this.dataDir, path.dirname(filename));
+                let directory = path.join(info.dataDir, path.dirname(filename));
 
-                return this._cacher.get(filename)
-                    .then(info => {
-                        if (typeof info !== 'undefined')
-                            return info;
+                return this._cacher.get(variable)
+                    .then(attrs => {
+                        if (typeof attrs !== 'undefined')
+                            return attrs;
 
                         let exists;
                         try {
@@ -659,7 +776,7 @@ class Directory extends EventEmitter {
                                     let tries = 0;
                                     let retry = () => {
                                         if (++tries > this.constructor.dataRetryMax)
-                                            return reject(new Error(`Max retries reached while getting ${filename}`));
+                                            return reject(new Error(`Max retries reached while getting ${variable}`));
 
                                         this._filer.lockRead(path.join(directory, '.vars.json'))
                                             .then(contents => {
@@ -684,7 +801,7 @@ class Directory extends EventEmitter {
                                 if (!cacheResult)
                                     return json[name];
 
-                                return this._cacher.set(filename, typeof json[name] === 'undefined' ? null : json[name])
+                                return this._cacher.set(variable, typeof json[name] === 'undefined' ? null : json[name])
                                     .then(() => {
                                         return json[name];
                                     });
@@ -695,37 +812,38 @@ class Directory extends EventEmitter {
 
     /**
      * Delete variable
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @return {Promise}
      */
-    del(filename) {
-        this._logger.debug('directory', `Deleting ${filename}`);
-
+    del(variable) {
         return Promise.resolve()
             .then(() => {
-                if (!this._util.isUuid(filename))
-                    return { path: filename };
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                let search = this._index.search(this._index.constructor.binUuid(filename));
+                let search = this._index.search(this._index.constructor.binUuid(variable));
                 if (!search || search.type !== 'variable')
-                    return null;
+                    return [ null, null ];
 
-                return search;
+                return [ search.directory, search.path ];
             })
-            .then(info => {
-                if (!info)
-                    return null;
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
+
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Deleting ${variable}`);
 
                 let id;
-                let filename = info.path;
+                let info = this.directories.get(repo);
                 let name = path.basename(filename);
-                let directory = path.join(this.dataDir, path.dirname(filename));
+                let directory = path.join(info.dataDir, path.dirname(filename));
 
-                return this._cacher.unset(filename)
+                return this._cacher.unset(variable)
                     .then(() => {
                         this._filer.createDirectory(
                                 directory,
-                                { mode: this.dirMode, uid: this.user, gid: this.group }
+                                { mode: info.dirMode, uid: info.uid, gid: info.gid }
                             )
                             .then(() => {
                                 try {
@@ -738,7 +856,7 @@ class Directory extends EventEmitter {
                                     let tries = 0;
                                     let retry = () => {
                                         if (++tries > this.constructor.dataRetryMax)
-                                            return reject(new Error(`Max retries reached while deleting ${filename}`));
+                                            return reject(new Error(`Max retries reached while deleting ${variable}`));
 
                                         let success = false;
                                         this._filer.lockUpdate(
@@ -757,7 +875,7 @@ class Directory extends EventEmitter {
                                                     json[name] = null;
                                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                 },
-                                                {mode: this.fileMode, uid: this.user, gid: this.group}
+                                                { mode: info.fileMode, uid: info.uid, gid: info.gid }
                                             )
                                             .then(() => {
                                                 if (success)
@@ -780,7 +898,7 @@ class Directory extends EventEmitter {
                                     return this._index.del(this._index.constructor.binUuid(id));
                             })
                             .then(() => {
-                                this.notify(filename, { value: null, mtime: Math.round(Date.now() / 1000) });
+                                return this.notify(variable, { value: null, mtime: Math.round(Date.now() / 1000) });
                             })
                             .catch(error => {
                                 this._logger.error(`FS error: ${error.message}`);
@@ -791,81 +909,96 @@ class Directory extends EventEmitter {
 
     /**
      * Remove a branch
-     * @param {string} filename                     Branch path
+     * @param {string} variable                     Variable name
      * @return {Promise}
      */
-    rm(filename) {
-        this._logger.debug('directory', `Removing ${filename}`);
-
-        return this.del(filename)
+    rm(variable) {
+        return this.del(variable)
             .then(() => {
-                return this._filer.process(
-                    path.join(this.dataDir, filename),
-                    file => {
-                        let dir = path.dirname(file);
-                        let base = path.basename(file);
-                        if (dir.indexOf('/.') !== -1 || base !== '.vars.json')
-                            return Promise.resolve();
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                        return this._filer.lockRead(file)
-                            .then(contents => {
-                                let json = JSON.parse(contents);
-                                let promises = [];
-                                for (let key of Object.keys(json))
-                                    promises.push(this.del(path.join(file.substring(this.dataDir.length), key)));
-                                if (promises.length)
-                                    return Promise.all(promises);
-                            });
-                    }
-                )
+                let search = this._index.search(this._index.constructor.binUuid(variable));
+                if (!search || search.type !== 'variable')
+                    return [ null, null ];
+
+                return [ search.directory, search.path ];
             })
-            .then(() => {
-                return this._filer.remove(path.join(this.dataDir, filename))
-                    .catch(() => {
-                        // do nothing
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
+
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Removing ${variable}`);
+
+                let info = this.directories.get(repo);
+                return this._filer.process(
+                        path.join(info.dataDir, filename),
+                        file => {
+                            let dir = path.dirname(file);
+                            let base = path.basename(file);
+                            if (dir.indexOf('/.') !== -1 || base !== '.vars.json')
+                                return Promise.resolve();
+
+                            return this._filer.lockRead(file)
+                                .then(contents => {
+                                    let json = JSON.parse(contents);
+                                    let promises = [];
+                                    for (let key of Object.keys(json))
+                                        promises.push(this.del(repo + ':' + path.join(file.substring(info.dataDir.length), key)));
+                                    if (promises.length)
+                                        return Promise.all(promises);
+                                });
+                        }
+                    )
+                    .then(() => {
+                        return this._filer.remove(path.join(info.dataDir, filename))
+                            .catch(() => {
+                                // do nothing
+                            });
                     });
-            });
+            })
     }
 
     /**
      * Signal variable change
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @return {Promise}
      */
-    touch(filename) {
-        return this.setAttr(filename, 'mtime', Math.round(Date.now() / 1000));
+    touch(variable) {
+        return this.setAttr(variable, 'mtime', Math.round(Date.now() / 1000));
     }
 
     /**
      * Set attribute
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {*} name                              Attribute name
      * @param {*} value                             Attribute value
      * @return {Promise}                            Resolves to history id
      */
-    setAttr(filename, name, value) {
-        this._logger.debug('directory', `Setting attribute ${name} of ${filename}`);
+    setAttr(variable, name, value) {
+        this._logger.debug('directory', `Setting attribute ${name} of ${variable}`);
 
-        return this.get(filename, false, false)
+        return this.get(variable, false, false)
             .then(info => {
                 if (!info)
                     return null;
 
                 info[name] = value;
-                return this.set(filename, info);
+                return this.set(variable, info);
             });
     }
 
     /**
      * Get attribute
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {string} name                         Attribute name
      * @return {Promise}
      */
-    getAttr(filename, name) {
-        this._logger.debug('directory', `Getting attribute ${name} of ${filename}`);
+    getAttr(variable, name) {
+        this._logger.debug('directory', `Getting attribute ${name} of ${variable}`);
 
-        return this.get(filename)
+        return this.get(variable)
             .then(info => {
                 if (!info)
                     return null;
@@ -876,144 +1009,186 @@ class Directory extends EventEmitter {
 
     /**
      * Delete attribute
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {string} name                         Attribute name
      * @return {Promise}
      */
-    delAttr(filename, name) {
-        this._logger.debug('directory', `Deleting attribute ${name} of ${filename}`);
+    delAttr(variable, name) {
+        this._logger.debug('directory', `Deleting attribute ${name} of ${variable}`);
 
-        return this.get(filename, false, false)
+        return this.get(variable, false, false)
             .then(info => {
                 if (!info)
                     return null;
 
                 delete info[name];
-                return this.set(filename, info);
+                return this.set(variable, info);
             });
     }
 
     /**
      * Add history record
-     * @param {string} filename                     Variable path
-     * @param {object} info                         Variable
+     * @param {string} variable                     Variable name
+     * @param {object} attrs                        Variable
      * @return {Promise}                            Resolves to id
      */
-    addHistory(filename, info) {
-        this._logger.debug('directory', `Adding to history of ${filename}`);
-
-        let now = new Date();
-        let mtime = Math.round(now.getTime() / 1000);
-        let directory = path.join(
-            this.dataDir,
-            filename,
-            '.history',
-            now.getUTCFullYear().toString(),
-            this._padNumber(now.getUTCMonth() + 1, 2),
-            this._padNumber(now.getUTCDate(), 2),
-            this._padNumber(now.getUTCHours(), 2)
-        );
-
-        let json = {
-            id: uuid.v4(),
-            mtime: mtime,
-            variable: info,
-        };
-
-        let history;
-
-        return this._filer.createDirectory(
-            directory,
-            { mode: this.dirMode, uid: this.user, gid: this.group }
-            )
+    addHistory(variable, attrs) {
+        return Promise.resolve()
             .then(() => {
-                let name;
-                let files = fs.readdirSync(directory);
-                let numbers = [];
-                let re = /^(\d+)\.json$/;
-                for (let file of files) {
-                    let result = re.exec(file);
-                    if (!result)
-                        continue;
-                    numbers.push(parseInt(result[1]));
-                }
-                if (numbers.length) {
-                    numbers.sort();
-                    name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
-                } else {
-                    name = '0001';
-                }
-                history = path.join(directory, name + '.json');
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                return this._filer.lockWrite(
-                    history,
-                    JSON.stringify(json, undefined, 4) + '\n',
-                    { mode: this.fileMode, uid: this.user, gid: this.group }
-                );
+                let search = this._index.search(this._index.constructor.binUuid(variable));
+                if (!search || search.type !== 'variable')
+                    return [ null, null ];
+
+                return [ search.directory, search.path ];
             })
-            .then(() => {
-                this._index.insert(
-                    'history',
-                    this._index.constructor.binUuid(json.id),
-                    {
-                        path: filename,
-                        attr: history.substring(this.dataDir.length),
-                    }
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
+
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Adding to history of ${variable}`);
+
+                let info = this.directories.get(repo);
+                let now = new Date();
+                let mtime = Math.round(now.getTime() / 1000);
+                let directory = path.join(
+                    info.dataDir,
+                    filename,
+                    '.history',
+                    now.getUTCFullYear().toString(),
+                    this._padNumber(now.getUTCMonth() + 1, 2),
+                    this._padNumber(now.getUTCDate(), 2),
+                    this._padNumber(now.getUTCHours(), 2)
                 );
-                return json.id;
+
+                let json = {
+                    id: uuid.v4(),
+                    mtime: mtime,
+                    variable: attrs,
+                };
+
+                let history;
+
+                return this._filer.createDirectory(
+                        directory,
+                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                    )
+                    .then(() => {
+                        let name;
+                        let files = fs.readdirSync(directory);
+                        let numbers = [];
+                        let re = /^(\d+)\.json$/;
+                        for (let file of files) {
+                            let result = re.exec(file);
+                            if (!result)
+                                continue;
+                            numbers.push(parseInt(result[1]));
+                        }
+                        if (numbers.length) {
+                            numbers.sort();
+                            name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
+                        } else {
+                            name = '0001';
+                        }
+                        history = path.join(directory, name + '.json');
+
+                        return this._filer.lockWrite(
+                            history,
+                            JSON.stringify(json, undefined, 4) + '\n',
+                            { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                        );
+                    })
+                    .then(() => {
+                        this._index.insert(
+                            'history',
+                            this._index.constructor.binUuid(json.id),
+                            {
+                                directory: repo,
+                                path: filename,
+                                attr: history.substring(info.dataDir.length),
+                            }
+                        );
+                        return json.id;
+                    });
             });
     }
 
     /**
      * Clear all the history
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @return {Promise}
      */
-    clearHistory(filename) {
-        this._logger.debug('directory', `Clearing history of ${filename}`);
+    clearHistory(variable) {
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-        let re = /^(\d+)\.json$/;
-        return this._filer.process(
-            path.join(this.dataDir, filename, '.history'),
-            file => {
-                if (!re.test(path.basename(file)))
-                    return Promise.resolve();
+                let search = this._index.search(this._index.constructor.binUuid(variable));
+                if (!search || search.type !== 'variable')
+                    return [ null, null ];
 
-                return this._filer.lockRead(file)
-                    .then(contents => {
-                        let json = JSON.parse(contents);
-                        if (this._util.isUuid(json['id']))
-                            this._index.del(this._index.constructor.binUuid(json['id']));
-                    });
-            }
-        );
+                return [ search.directory, search.path ];
+            })
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
+
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Clearing history of ${variable}`);
+
+                let info = this.directories.get(repo);
+                let re = /^(\d+)\.json$/;
+                return this._filer.process(
+                    path.join(info.dataDir, filename, '.history'),
+                    file => {
+                        if (!re.test(path.basename(file)))
+                            return Promise.resolve();
+
+                        return this._filer.lockRead(file)
+                            .then(contents => {
+                                let json = JSON.parse(contents);
+                                if (this._util.isUuid(json['id']))
+                                    this._index.del(this._index.constructor.binUuid(json['id']));
+                            });
+                    }
+                );
+            });
     }
 
     /**
      * Upload a file
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @param {Buffer} buffer                       File
      * @return {Promise}                            Resolves to id
      */
-    uploadFile(filename, buffer) {
-        this._logger.debug('directory', `Uploading to ${filename}`);
-
+    uploadFile(variable, buffer) {
         return Promise.resolve()
             .then(() => {
-                if (!this._util.isUuid(filename))
-                    return filename;
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                let search = this._index.search(this._index.constructor.binUuid(filename));
+                let search = this._index.search(this._index.constructor.binUuid(variable));
                 if (!search || search.type !== 'variable')
-                    return null;
+                    return [ null, null ];
 
-                return search.path;
+                return [ search.directory, search.path ];
             })
-            .then(filename => {
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
+
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Uploading to ${variable}`);
+
+                let info = this.directories.get(repo);
                 let now = new Date();
                 let mtime = Math.round(now.getTime() / 1000);
                 let directory = path.join(
-                    this.dataDir,
+                    info.dataDir,
                     filename,
                     '.files',
                     now.getUTCFullYear().toString(),
@@ -1031,8 +1206,8 @@ class Directory extends EventEmitter {
                 let attrfile, binfile;
 
                 return this._filer.createDirectory(
-                    directory,
-                    { mode: this.dirMode, uid: this.user, gid: this.group }
+                        directory,
+                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
                     )
                     .then(() => {
                         let name;
@@ -1058,18 +1233,18 @@ class Directory extends EventEmitter {
                         }
                         attrfile = path.join(directory, name + '.json');
                         binfile = path.join(directory, name + '.bin');
-                        json.bin = binfile.substring(this.dataDir.length);
+                        json.bin = binfile.substring(info.dataDir.length);
 
                         return Promise.all([
                             this._filer.lockWrite(
                                 attrfile,
                                 JSON.stringify(json, undefined, 4) + '\n',
-                                { mode: this.fileMode, uid: this.user, gid: this.group }
+                                { mode: info.fileMode, uid: info.uid, gid: info.gid }
                             ),
                             this._filer.lockWriteBuffer(
                                 binfile,
                                 buffer,
-                                { mode: this.fileMode, uid: this.user, gid: this.group }
+                                { mode: info.fileMode, uid: info.uid, gid: info.gid }
                             ),
                         ]);
                     })
@@ -1078,9 +1253,10 @@ class Directory extends EventEmitter {
                             'file',
                             this._index.constructor.binUuid(json.id),
                             {
+                                directory: repo,
                                 path: filename,
-                                attr: attrfile.substring(this.dataDir.length),
-                                bin: binfile.substring(this.dataDir.length),
+                                attr: attrfile.substring(info.dataDir.length),
+                                bin: binfile.substring(info.dataDir.length),
                             }
                         );
                         return json.id;
@@ -1090,30 +1266,35 @@ class Directory extends EventEmitter {
 
     /**
      * Download a file
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @return {Promise}                            Resolves Buffer
      */
-    downloadFile(filename) {
-        this._logger.debug('directory', `Downloading from ${filename}`);
-
+    downloadFile(variable) {
         return Promise.resolve()
             .then(() => {
-                if (!this._util.isUuid(filename))
-                    return { path: filename };
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-                let search = this._index.search(this._index.constructor.binUuid(filename));
-                if (!search || search.type !== 'file')
-                    return null;
+                let search = this._index.search(this._index.constructor.binUuid(variable));
+                if (!search)
+                    return [ null, null ];
 
-                return search;
+                if ([ 'variable', 'file' ].indexOf(search.type) === -1)
+                    return [ null, null ];
+
+                return [ search.directory, search.path, search.type, search.bin ];
             })
-            .then(info => {
-                if (!info)
+            .then(([ repo, filename, type, bin ]) => {
+                if (!repo || !filename)
                     return null;
-                if (info.bin)
-                    return path.join(this.dataDir, info.bin);
 
-                let directory = path.join(this.dataDir, info.path, '.files');
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Downloading ${variable}`);
+
+                let info = this.directories.get(repo);
+
+                if (type === 'file')
+                    return path.join(info.dataDir, bin);
 
                 let loadDir = dir => {
                     return new Promise((resolve, reject) => {
@@ -1159,7 +1340,7 @@ class Directory extends EventEmitter {
                     });
                 };
 
-                return loadDir(directory);
+                return loadDir(path.join(info.dataDir, filename, '.files'));
             })
             .then(filename => {
                 if (!filename)
@@ -1171,27 +1352,45 @@ class Directory extends EventEmitter {
 
     /**
      * Clear all uploaded files
-     * @param {string} filename                     Variable path
+     * @param {string} variable                     Variable name
      * @return {Promise}
      */
-    clearFiles(filename) {
-        this._logger.debug('directory', `Clearing files of ${filename}`);
+    clearFiles(variable) {
+        return Promise.resolve()
+            .then(() => {
+                if (!this._util.isUuid(variable))
+                    return this.parseVariable(variable);
 
-        let re = /^(\d+)\.json$/;
-        return this._filer.process(
-            path.join(this.dataDir, filename, '.files'),
-            file => {
-                if (!re.test(path.basename(file)))
-                    return Promise.resolve();
+                let search = this._index.search(this._index.constructor.binUuid(variable));
+                if (!search || search.type !== 'variable')
+                    return [ null, null ];
 
-                return this._filer.lockRead(file)
-                    .then(contents => {
-                        let json = JSON.parse(contents);
-                        if (this._util.isUuid(json['id']))
-                            this._index.del(this._index.constructor.binUuid(json['id']));
-                    });
-            }
-        );
+                return [ search.directory, search.path ];
+            })
+            .then(([ repo, filename ]) => {
+                if (!repo || !filename)
+                    return;
+
+                variable = `${repo}:${filename}`;
+                this._logger.debug('directory', `Clearing files of ${variable}`);
+
+                let info = this.directories.get(repo);
+                let re = /^(\d+)\.json$/;
+                return this._filer.process(
+                    path.join(info.dataDir, filename, '.files'),
+                    file => {
+                        if (!re.test(path.basename(file)))
+                            return Promise.resolve();
+
+                        return this._filer.lockRead(file)
+                            .then(contents => {
+                                let json = JSON.parse(contents);
+                                if (this._util.isUuid(json['id']))
+                                    this._index.del(this._index.constructor.binUuid(json['id']));
+                            });
+                    }
+                );
+            });
     }
 
     /**
@@ -1207,17 +1406,6 @@ class Directory extends EventEmitter {
                         client.done();
                     })
             });
-    }
-
-    /**
-     * Init attributes
-     * @param {object} json                             Attributes
-     */
-    _initAttrs(json) {
-        if (!json['id'])
-            json['id'] = uuid.v4();
-        if (!json['ctime'])
-            json['ctime'] = Math.round(Date.now() / 1000);
     }
 
     /**

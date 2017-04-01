@@ -24,8 +24,7 @@ class State extends EventEmitter {
 
         this.sessionId = uuid.v4();
         this.started = Math.round(Date.now() / 1000);
-        this.dirWatcher = null;
-        this.files = new Map();
+        this.states = new Map();
 
         this._name = null;
         this._app = app;
@@ -111,49 +110,65 @@ class State extends EventEmitter {
             .then(() => {
                 this._logger.debug('state', 'Starting the server');
 
-                this._logger.debug('state', `Watching ${this._directory.stateDir}`);
-                this.dirWatcher = fs.watch(this._directory.stateDir, this.onChangeDir.bind(this));
-                if (!this.dirWatcher) {
-                    this._logger.error(`Could not install watcher for ${this._directory.stateDir}`);
-                    return;
-                }
+                for (let [ directory, info ] of this._directory.directories) {
+                    let state = {
+                        stateDir: info.stateDir,
+                        dirMode: info.dirMode,
+                        fileMode: info.fileMode,
+                        uid: info.uid,
+                        gid: info.gid,
+                        dirWatcher: null,
+                        files: new Map(),
+                    };
 
-                this.dirWatcher.on('error', this.onErrorDir.bind(this));
+                    this._logger.debug('state', `Watching ${info.stateDir}`);
+                    state.dirWatcher = fs.watch(info.stateDir, (eventType, filename) => { this.onChangeDir(directory, eventType, filename); });
+                    if (!state.dirWatcher) {
+                        this._logger.error(`Could not install watcher for ${info.stateDir}`);
+                        continue;
+                    }
+
+                    state.dirWatcher.on('error', error => { this.onErrorDir(directory, error); });
+                    this.states.set(directory, state);
+                    this.onChangeDir(directory, 'init', null);
+                }
 
                 this._updateTimer = setInterval(this.onUpdateTimer.bind(this), this.constructor.updateInterval);
                 this._cleanTimer = setInterval(this.onCleanTimer.bind(this), this.constructor.cleanInterval);
 
                 this.onUpdateTimer();
-                this.onChangeDir('init', null);
             });
     }
 
     /**
      * State directory changed
+     * @param {string} directory                        Directory name
      * @param {string} eventType                        'rename', 'change' or 'init'
      * @param {string|null} filename                    Name of the file
      */
-    onChangeDir(eventType, filename) {
-        this._logger.debug('state', `State directory event: ${eventType}, ${filename}`);
+    onChangeDir(directory, eventType, filename) {
+        this._logger.debug('state', `State directory event for ${directory}: ${eventType}, ${filename}`);
+        let info = this.states.get(directory);
 
-        let files = fs.readdirSync(this._directory.stateDir);
+        let files = fs.readdirSync(info.stateDir);
         for (let file of files) {
             let stats;
             try {
-                stats = fs.statSync(path.join(this._directory.stateDir, file));
+                stats = fs.statSync(path.join(info.stateDir, file));
             } catch (error) {
                 continue;
             }
-            this.files.set(file, stats.mtime);
+            info.files.set(file, stats.mtime);
         }
     }
 
     /**
      * State directory error
+     * @param {string} directory                        Directory name
      * @param {Error} error                             Error object
      */
-    onErrorDir(error) {
-        this._logger.error(`State directory error: ${error.message}`);
+    onErrorDir(directory, error) {
+        this._logger.error(`State directory error for ${directory}: ${error.message}`);
     }
 
     /**
@@ -166,14 +181,16 @@ class State extends EventEmitter {
             updated: Math.round(Date.now() / 1000),
         };
 
-        this._filer.lockWrite(
-                path.join(this._directory.stateDir, this.sessionId + '.json'),
-                JSON.stringify(json, undefined, 4) + '\n',
-                { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
-            )
-            .catch(() => {
-                // do nothing
-            });
+        for (let [ directory, info ] of this.states) {
+            this._filer.lockWrite(
+                    path.join(info.stateDir, this.sessionId + '.json'),
+                    JSON.stringify(json, undefined, 4) + '\n',
+                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                )
+                .catch(() => {
+                    // do nothing
+                });
+        }
     }
 
     /**
@@ -181,13 +198,15 @@ class State extends EventEmitter {
      */
     onCleanTimer() {
         let expired = Date.now() - this.constructor.expirationTimeout;
-        for (let [ file, mtime ] of this.files) {
-            if (mtime < expired) {
-                this.files.delete(file);
-                try {
-                    fs.unlinkSync(path.join(this._directory.stateDir, file));
-                } catch (error) {
-                    // do nothing
+        for (let [ directory, info ] of this.states) {
+            for (let [ file, mtime ] of info.files) {
+                if (mtime < expired) {
+                    info.files.delete(file);
+                    try {
+                        fs.unlinkSync(path.join(info.stateDir, file));
+                    } catch (error) {
+                        // do nothing
+                    }
                 }
             }
         }

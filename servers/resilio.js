@@ -152,11 +152,17 @@ class Resilio extends EventEmitter {
                 this.onChangeLog('init', null);
                 this._directory.clearCache()
                     .then(() => {
-                        this._index.needLoad = true;
-                        return this._index.load();
+                        let promises = [];
+                        for (let [ directory, info ] of this._index.indexes) {
+                            info.needLoad = true;
+                            promises.push(this._index.load(directory));
+                        }
+
+                        if (promises.length)
+                            return Promise.all(promises);
                     })
                     .catch(error => {
-                        this._logger.error(`Clear cacher error: ${error.message}`);
+                        this._logger.error(`Clear cacher error: ${error.stack}`);
                     });
             }
         }
@@ -300,6 +306,7 @@ class Resilio extends EventEmitter {
         this.log = new Buffer(0);
 
         let files = [];
+        let indexPromises = [], varPromises = [];
         let re = /^\[.+?\] Finished downloading file "(.+)"$/;
         for (let line of str.trim().split('\n')) {
             line = line.trim();
@@ -309,32 +316,40 @@ class Resilio extends EventEmitter {
             if (!result)
                 continue;
 
-            let file;
-            if (result[1] === path.join(this._directory.dataDir, '.index.1')) {
-                this._index.needLoad = true;
-                this._index.load();
-            } else if (result[1].startsWith(this._directory.dataDir) && result[1].endsWith('/.vars.json')) {
-                file = path.dirname(result[1]);
-            }
+            for (let [ directory, info ] of this._index.indexes) {
+                let file;
+                if (result[1] === path.join(info.dataDir, '.index.1')) {
+                    info.needLoad = true;
+                    indexPromises.push(this._index.load(directory));
+                } else if (result[1].startsWith(info.dataDir) && result[1].endsWith('/.vars.json')) {
+                    file = path.dirname(result[1]);
+                }
 
-            if (file && files.indexOf(file) === -1) {
-                this._logger.info(`Path updated: ${file}`);
-                files.push(file);
+                if (file && file.indexOf('/.') === -1 && files.indexOf(file) === -1) {
+                    this._logger.info(`Path updated: ${file}`);
+                    files.push({
+                        directory: directory,
+                        dataDir: info.dataDir,
+                        file: file
+                    });
+                    varPromises.push(this._filer.lockRead(path.join(file, '.vars.json')));
+                }
             }
         }
 
-        let promises = [];
-        for (let file of files) {
-            if (file.indexOf('/.') === -1)
-                promises.push(this._filer.lockRead(path.join(file, '.vars.json')));
+        if (indexPromises) {
+            Promise.all(indexPromises)
+                .catch(error => {
+                    this._logger.error(`Index error: ${error.message}`);
+                });
         }
 
-        if (!promises.length)
+        if (!varPromises.length)
             return exit();
 
-        Promise.all(promises)
+        Promise.all(varPromises)
             .then(results => {
-                promises = [];
+                let promises = [];
                 for (let i = 0; i < files.length; i++) {
                     let json;
                     try {
@@ -344,22 +359,20 @@ class Resilio extends EventEmitter {
                     }
 
                     for (let key of Object.keys(json)) {
-                        ((file, key, json) => {
-                            let directory = file.substring(this._directory.dataDir.length) || '/';
-                            let varName = path.join(directory, key);
+                        ((directory, variable, json) => {
                             promises.push(
-                                this._cacher.get(varName)
+                                this._cacher.get(`${directory}:${variable}`)
                                     .then(result => {
                                         if (typeof result === 'undefined')
                                             return;
 
-                                        return this._cacher.set(varName, json[key]);
+                                        return this._cacher.set(`${directory}:${variable}`, json);
                                     })
                                     .then(() => {
-                                        this._directory.notify(varName, json[key]);
+                                        return this._directory.notify(`${directory}:${variable}`, json);
                                     })
                             );
-                        })(files[i], key, json);
+                        })(files[i].directory, path.join(files[i].file.substring(files[i].dataDir.length) || '/', key), json[key]);
                     }
                 }
 

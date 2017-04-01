@@ -26,13 +26,7 @@ class Index extends EventEmitter {
     constructor(app, config, logger, filer, util) {
         super();
 
-        this.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
-        this.confirmation = new Map();
-        this.needSave = false;
-        this.needLoad = false;
-
-        this._saving = false;
-        this._loading = false;
+        this.indexes = new Map();
 
         this._name = null;
         this._app = app;
@@ -91,92 +85,134 @@ class Index extends EventEmitter {
             return Promise.reject(new Error(`Server ${name} was not properly initialized`));
 
         return Array.from(this._app.get('modules')).reduce(
-            (prev, [curName, curModule]) => {
-                return prev.then(() => {
-                    if (!curModule.register)
-                        return;
+                (prev, [curName, curModule]) => {
+                    return prev.then(() => {
+                        if (!curModule.register)
+                            return;
 
-                    let result = curModule.register(name);
-                    if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
-                        throw new Error(`Module '${curName}' register() did not return a Promise`);
-                    return result;
-                });
-            },
-            Promise.resolve()
+                        let result = curModule.register(name);
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
+                            throw new Error(`Module '${curName}' register() did not return a Promise`);
+                        return result;
+                    });
+                },
+                Promise.resolve()
             )
             .then(() => {
                 this._logger.debug('index', 'Starting the server');
+                for (let [ directory, info ] of this._directory.directories) {
+                    this.indexes.set(
+                        directory,
+                        {
+                            enabled: info.enabled,
+                            dataDir: info.dataDir,
+                            dirMode: info.dirMode,
+                            fileMode: info.fileMode,
+                            uid: info.uid,
+                            gid: info.gid,
+                            tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
+                            confirmation: new Map(),
+                            needSave: false,
+                            needLoad: false,
+                            saving: false,
+                            loading: false,
+                        }
+                    );
+                }
                 this._saveTimer = setInterval(this.onSaveTimer.bind(this), 1000);
             });
     }
 
     /**
      * Build index
+     * @param {string} directory                Directory name
      * @return {Promise}
      */
-    build() {
-        this._logger.debug('index', 'Building index');
+    build(directory) {
+        let info = this.indexes.get(directory);
+        if (!info || !info.enabled)
+            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+
+        this._logger.debug('index', `Building index of ${directory}`);
 
         let tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
         let messages = [];
-        return this._loadDir(this._directory.dataDir, tree, messages)
+        return this._loadDir(info.dataDir, '/', tree, messages)
             .then(() => {
-                this.tree = tree;
-                return this.save();
+                info.tree = tree;
+                return this.save(directory);
             })
             .then(() => {
                 return messages;
             });
     }
 
-    save() {
-        if (this._loading || this._saving)
+    /**
+     * Save index
+     * @param {string} directory                Directory name
+     * @return {Promise}
+     */
+    save(directory) {
+        let info = this.indexes.get(directory);
+        if (!info || !info.enabled)
+            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+
+        if (info.loading || info.saving)
             return Promise.resolve();
 
-        if (!this.tree.tree.data.length)
+        if (!info.tree.tree.data.length)
             return Promise.resolve();
 
-        this._logger.debug('index', 'Saving index');
-        this._saving = true;
-        this.needSave = false;
+        this._logger.debug('index', `Saving index of ${directory}`);
+        info.saving = true;
+        info.needSave = false;
 
         let hash, tree;
         try {
             hash = crypto.createHash('md5');
-            tree = this._serialize(this.tree.tree);
+            tree = this._serialize(info.tree.tree);
             hash.update(tree);
         } catch (error) {
-            this._saving = false;
+            info.saving = false;
             return Promise.reject(error);
         }
 
         return this._filer.lockWriteBuffer(
-                path.join(this._directory.dataDir, '.index.1'),
+                path.join(info.dataDir, '.index.1'),
                 Buffer.concat([ hash.digest(), tree ]),
-                { mode: this._directory.fileMode, uid: this._directory.user, gid: this._directory.group }
+                { mode: info.fileMode, uid: info.uid, gid: info.gid }
             )
             .then(
                 () => {
-                    this._saving = false;
-                    if (this.needSave)
-                        this.save();
+                    info.saving = false;
+                    if (info.needSave)
+                        return this.save(directory);
                 },
                 error => {
-                    this._saving = false;
+                    info.saving = false;
                     throw error;
                 }
             );
     }
 
-    load() {
-        if (this._loading || this._saving)
+    /**
+     * Load index
+     * @param {string} directory                Directory name
+     * @return {Promise}
+     */
+    load(directory) {
+        let info = this.indexes.get(directory);
+        if (!info || !info.enabled)
+            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+
+        if (info.loading || info.saving)
             return Promise.resolve();
 
-        this._logger.debug('index', 'Loading index');
-        this._loading = true;
-        this.needLoad = false;
+        this._logger.debug('index', `Loading index of ${directory}`);
+        info.loading = true;
+        info.needLoad = false;
 
-        return this._filer.lockReadBuffer(path.join(this._directory.dataDir, '.index.1'))
+        return this._filer.lockReadBuffer(path.join(info.dataDir, '.index.1'))
             .then(buffer => {
                 let hashBuffer = buffer.slice(0, 16);
                 let treeBuffer = buffer.slice(16);
@@ -186,117 +222,154 @@ class Index extends EventEmitter {
                 if (!hashBuffer.equals(hash.digest()))
                     throw new Error('Index has wrong checksum');
 
-                let node = this._deserialize({ buffer: treeBuffer, offset: 0 }, null);
+                let node = this._deserialize({ tree: info.tree, buffer: treeBuffer, offset: 0 }, null);
                 if (node)
-                    this.tree.tree = node;
+                    info.tree.tree = node;
 
-                for (let [ id, confirm ] of this.confirmation) {
-                    let search = this.tree.search(id);
+                for (let [ id, confirm ] of info.confirmation) {
+                    let search = info.tree.search(id);
                     if (search.length) {
                         if (++confirm.counter >= 3) {
                             this._logger.debug('index', `Id ${id} confirmed`);
-                            this.confirmation.delete(id);
+                            info.confirmation.delete(id);
                         }
                     } else {
                         confirm.counter = 0;
-                        this._logger.debug('index', `Id ${id} missed from index`);
-                        this.insert(confirm.type, id, confirm.info);
+                        this._logger.debug('index', `Id ${id} missed from index of ${directory}`);
+                        this.insert(confirm.type, id, confirm.record);
                     }
                 }
             })
             .then(
                 () => {
-                    this._loading = false;
-                    if (this.needLoad)
-                        return this.load();
+                    info.loading = false;
+                    if (info.needLoad)
+                        return this.load(directory);
                 },
                 error => {
-                    this._loading = false;
+                    info.loading = false;
                     throw error;
                 }
             );
     }
 
+    /**
+     * Find ID
+     * @param {bignum} id                       ID
+     * @return {object}
+     */
     search(id) {
         this._logger.debug('index', `Searching for ${id}`);
 
-        let search = this.tree.search(id);
-        let result = search.length ? search[0] : null;
-        if (!result)
-            return result;
+        for (let [ directory, info ] of this.indexes) {
+            let search = info.tree.search(id);
+            if (!search.length)
+                continue;
+            if (!search[0])
+                return null;
 
-        if (!result.data)
-            result.data = JSON.parse(result.buffer);
-        return result.data;
+            if (!search[0].data)
+                search[0].data = JSON.parse(search[0].buffer);
+            return Object.assign({ directory: directory }, search[0].data);
+        }
+
+        return null;
     }
 
-    insert(type, id, info) {
-        if (this.tree.search(id).length)
-            return;
+    /**
+     * Insert index entry
+     * @param {string} type                     Type of entry
+     * @param {bignum} id                       ID
+     * @param {object} record                   Description
+     */
+    insert(type, id, record) {
+        let info = this.indexes.get(record.directory);
+        if (!info || !info.enabled)
+            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${record.directory}`));
 
-        this._logger.debug('index', `Inserting ${type} of ${info.path} as ${id}`);
+        if (info.tree.search(id).length)
+            return Promise.resolve();
+
+        this._logger.debug('index', `Inserting ${type} of ${record.directory}:${record.path} as ${id}`);
         let data;
         switch (type) {
             case 'variable':
                 data = {
                     type: type,
-                    path: info.path,
+                    path: record.path,
                 };
                 break;
             case 'history':
                 data = {
                     type: type,
-                    path: info.path,
-                    attr: info.attr,
+                    path: record.path,
+                    attr: record.attr,
                 };
                 break;
             case 'file':
                 data = {
                     type: type,
-                    path: info.path,
-                    attr: info.attr,
-                    bin: info.bin,
+                    path: record.path,
+                    attr: record.attr,
+                    bin: record.bin,
                 };
                 break;
             default:
                 throw new Error(`Invalid type: ${type}`);
         }
-        this.tree.insert(id, {
+        info.tree.insert(id, {
             buffer: null,
             data: data,
         });
-        this.needSave = true;
+        info.needSave = true;
 
-        let confirm = this.confirmation.get(id);
+        let confirm = info.confirmation.get(id);
         if (!confirm) {
             confirm = {
                 counter: 0,
                 type: type,
-                info: info,
+                record: record,
             };
             this.confirmation.set(id, confirm);
         }
     }
 
+    /**
+     * Delete ID
+     * @param {bignum} id                       ID
+     */
     del(id) {
-        let search = this.tree.search(id);
-        if (search.length) {
-            this._logger.debug('index', `Deleting ${id}`);
-            this.tree.delete(id);
-            this.needSave = true;
+        for (let [ directory, info ] of this.indexes) {
+            let search = info.tree.search(id);
+            if (search.length) {
+                this._logger.debug('index', `Deleting ${id}`);
+                info.tree.delete(id);
+                info.needSave = true;
+                return;
+            }
         }
     }
 
+    /**
+     * Save the trees
+     */
     onSaveTimer() {
-        if (!this.needSave)
-            return;
+        for (let [ directory, info ] of this.indexes) {
+            if (!info.needSave)
+                continue;
 
-        this.save()
-            .catch(error => {
-                this._logger.error(error);
-            });
+            this.save(directory)
+                .catch(error => {
+                    this._logger.error(error);
+                });
+        }
     }
 
+    /**
+     * Serialize tree node
+     * @param {object} node
+     * @return {Buffer}
+     */
     _serialize(node) {
         if (!node)
             return this.constructor.nullId;
@@ -313,13 +386,19 @@ class Index extends EventEmitter {
         return Buffer.concat([ buffer, node.data[0].buffer, Buffer.alloc(1, 0), this._serialize(node.left), this._serialize(node.right) ]);
     }
 
+    /**
+     * Deserialize next tree node
+     * @param {object} info
+     * @param {object} parent
+     * @return {object}
+     */
     _deserialize(info, parent) {
         let id = info.buffer.slice(info.offset, info.offset + 16);
         info.offset += 16;
         if (id.equals(this.constructor.nullId))
             return null;
 
-        let node = this.tree.tree.createSimilar();
+        let node = info.tree.tree.createSimilar();
 
         let start = info.offset;
         while (true) {
@@ -340,9 +419,17 @@ class Index extends EventEmitter {
         return node;
     }
 
-    _loadDir(dir, tree, messages) {
+    /**
+     * Index directory
+     * @param {string} root
+     * @param {string} dir
+     * @param {object} tree
+     * @param {string[]} messages
+     * @return {Promise}
+     */
+    _loadDir(root, dir, tree, messages) {
         return new Promise((resolve, reject) => {
-                fs.readdir(dir, (error, files) => {
+                fs.readdir(path.join(root, dir), (error, files) => {
                     if (error)
                         return reject(error);
 
@@ -354,7 +441,7 @@ class Index extends EventEmitter {
                 for (let file of files) {
                     promises.push(
                         new Promise((resolveStats, rejectStats) => {
-                            fs.stat(path.join(dir, file), (error, stats) => {
+                            fs.stat(path.join(root, dir, file), (error, stats) => {
                                 if (error)
                                     return rejectStats(error);
 
@@ -370,20 +457,19 @@ class Index extends EventEmitter {
                 return Promise.all(promises)
                     .then(stats => {
                         promises = [];
-                        let directory = dir.substring(this._directory.dataDir.length) || '/';
                         let re = /^(\d+)\.json$/;
                         for (let i = 0; i < files.length; i++) {
                             if (stats[i].isDirectory()) {
-                                promises.push(this._loadDir(path.join(dir, files[i]), tree, messages));
+                                promises.push(this._loadDir(root, path.join(dir, files[i]), tree, messages));
                             } else if (files[i] === '.vars.json') {
                                 promises.push(
-                                    this._filer.lockRead(path.join(dir, files[i]))
+                                    this._filer.lockRead(path.join(root, dir, files[i]))
                                         .then(contents => {
                                             let json;
                                             try {
                                                 json = JSON.parse(contents);
                                             } catch (error) {
-                                                return messages.push(`Could not read ${path.join(dir, files[i])}`);
+                                                return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
                                             }
 
                                             for (let key of Object.keys(json)) {
@@ -393,7 +479,7 @@ class Index extends EventEmitter {
                                                 if (!this._util.isUuid(varId))
                                                     continue;
 
-                                                let varName = path.join(directory, key);
+                                                let varName = path.join(dir, key);
                                                 tree.insert(this.constructor.binUuid(varId), {
                                                     buffer: null,
                                                     data: {
@@ -406,15 +492,15 @@ class Index extends EventEmitter {
                                 );
                             } else if (re.test(files[i])) {
                                 let end;
-                                if ((end = directory.indexOf('/.history/')) !== -1) {
+                                if ((end = dir.indexOf('/.history/')) !== -1) {
                                     promises.push(
-                                        this._filer.lockRead(path.join(dir, files[i]))
+                                        this._filer.lockRead(path.join(root, dir, files[i]))
                                             .then(contents => {
                                                 let json;
                                                 try {
                                                     json = JSON.parse(contents);
                                                 } catch (error) {
-                                                    return messages.push(`Could not read ${path.join(dir, files[i])}`);
+                                                    return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
                                                 }
 
                                                 let historyId = json['id'];
@@ -425,21 +511,21 @@ class Index extends EventEmitter {
                                                     buffer: null,
                                                     data: {
                                                         type: 'history',
-                                                        path: directory.substring(0, end),
-                                                        attr: path.join(directory, files[i]),
+                                                        path: dir.substring(0, end),
+                                                        attr: path.join(dir, files[i]),
                                                     }
                                                 });
                                             })
                                     );
-                                } else if ((end = directory.indexOf('/.files/')) !== -1) {
+                                } else if ((end = dir.indexOf('/.files/')) !== -1) {
                                         promises.push(
-                                            this._filer.lockRead(path.join(dir, files[i]))
+                                            this._filer.lockRead(path.join(root, dir, files[i]))
                                                 .then(contents => {
                                                     let json;
                                                     try {
                                                         json = JSON.parse(contents);
                                                     } catch (error) {
-                                                        return messages.push(`Could not read ${path.join(dir, files[i])}`);
+                                                        return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
                                                     }
 
                                                     let fileId = json['id'];
@@ -450,8 +536,8 @@ class Index extends EventEmitter {
                                                         buffer: null,
                                                         data: {
                                                             type: 'file',
-                                                            path: directory.substring(0, end),
-                                                            attr: path.join(directory, files[i]),
+                                                            path: dir.substring(0, end),
+                                                            attr: path.join(dir, files[i]),
                                                             bin: json['bin'],
                                                         }
                                                     });
@@ -467,6 +553,11 @@ class Index extends EventEmitter {
             });
     }
 
+    /**
+     * In order iteration
+     * @param {object} node
+     * @return {string}
+     */
     _inOrder(node) {
         if (!node)
             return '';
