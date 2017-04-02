@@ -81,7 +81,22 @@ class State extends EventEmitter {
     init(name) {
         this._name = name;
 
-        return Promise.resolve();
+        return Promise.resolve()
+            .then(() => {
+                for (let [ directory, info ] of this._directory.directories) {
+                    let state = {
+                        stateDir: info.stateDir,
+                        dirMode: info.dirMode,
+                        fileMode: info.fileMode,
+                        uid: info.uid,
+                        gid: info.gid,
+                        dirWatcher: null,
+                        files: new Map(),
+                    };
+
+                    this.states.set(directory, state);
+                }
+            });
     }
 
     /**
@@ -94,42 +109,31 @@ class State extends EventEmitter {
             return Promise.reject(new Error(`Server ${name} was not properly initialized`));
 
         return Array.from(this._app.get('modules')).reduce(
-            (prev, [curName, curModule]) => {
-                return prev.then(() => {
-                    if (!curModule.register)
-                        return;
+                (prev, [curName, curModule]) => {
+                    return prev.then(() => {
+                        if (!curModule.register)
+                            return;
 
-                    let result = curModule.register(name);
-                    if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
-                        throw new Error(`Module '${curName}' register() did not return a Promise`);
-                    return result;
-                });
-            },
-            Promise.resolve()
+                        let result = curModule.register(name);
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
+                            throw new Error(`Module '${curName}' register() did not return a Promise`);
+                        return result;
+                    });
+                },
+                Promise.resolve()
             )
             .then(() => {
                 this._logger.debug('state', 'Starting the server');
 
-                for (let [ directory, info ] of this._directory.directories) {
-                    let state = {
-                        stateDir: info.stateDir,
-                        dirMode: info.dirMode,
-                        fileMode: info.fileMode,
-                        uid: info.uid,
-                        gid: info.gid,
-                        dirWatcher: null,
-                        files: new Map(),
-                    };
-
+                for (let [ directory, info ] of this.states) {
                     this._logger.debug('state', `Watching ${info.stateDir}`);
-                    state.dirWatcher = fs.watch(info.stateDir, (eventType, filename) => { this.onChangeDir(directory, eventType, filename); });
-                    if (!state.dirWatcher) {
+                    info.dirWatcher = fs.watch(info.stateDir, (eventType, filename) => { this.onChangeDir(directory, eventType, filename); });
+                    if (!info.dirWatcher) {
                         this._logger.error(`Could not install watcher for ${info.stateDir}`);
                         continue;
                     }
 
-                    state.dirWatcher.on('error', error => { this.onErrorDir(directory, error); });
-                    this.states.set(directory, state);
+                    info.dirWatcher.on('error', error => { this.onErrorDir(directory, error); });
                     this.onChangeDir(directory, 'init', null);
                 }
 

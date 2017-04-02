@@ -72,6 +72,26 @@ class Index extends EventEmitter {
     init(name) {
         this._name = name;
 
+        for (let [ directory, info ] of this._directory.directories) {
+            this.indexes.set(
+                directory,
+                {
+                    enabled: info.enabled,
+                    dataDir: info.dataDir,
+                    dirMode: info.dirMode,
+                    fileMode: info.fileMode,
+                    uid: info.uid,
+                    gid: info.gid,
+                    tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
+                    confirmation: new Map(),
+                    needSave: false,
+                    needLoad: false,
+                    saving: false,
+                    loading: false,
+                }
+            );
+        }
+
         return Promise.resolve();
     }
 
@@ -100,25 +120,6 @@ class Index extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('index', 'Starting the server');
-                for (let [ directory, info ] of this._directory.directories) {
-                    this.indexes.set(
-                        directory,
-                        {
-                            enabled: info.enabled,
-                            dataDir: info.dataDir,
-                            dirMode: info.dirMode,
-                            fileMode: info.fileMode,
-                            uid: info.uid,
-                            gid: info.gid,
-                            tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
-                            confirmation: new Map(),
-                            needSave: false,
-                            needLoad: false,
-                            saving: false,
-                            loading: false,
-                        }
-                    );
-                }
                 this._saveTimer = setInterval(this.onSaveTimer.bind(this), 1000);
             });
     }

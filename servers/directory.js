@@ -202,26 +202,26 @@ class Directory extends EventEmitter {
                                     return;
 
                                 if (os.platform() === 'freebsd')
-                                    return this._runner.exec('pw', [ 'groupadd', info.group ]);
+                                    return this._runner.exec('pw', ['groupadd', info.group]);
 
-                                return this._runner.exec('groupadd', [ info.group ]);
+                                return this._runner.exec('groupadd', [info.group]);
                             })
                             .then(() => {
                                 if (!info.group || !this.syncUser)
                                     return;
 
                                 if (os.platform() === 'freebsd')
-                                    return this._runner.exec('pw', [ 'groupmod', info.group, '-m', this.syncUser ]);
+                                    return this._runner.exec('pw', ['groupmod', info.group, '-m', this.syncUser]);
 
-                                return this._runner.exec('usermod', [ '-G', info.group, '-a', this.syncUser ]);
+                                return this._runner.exec('usermod', ['-G', info.group, '-a', this.syncUser]);
                             })
                             .then(() => {
                                 return Promise.all([
-                                    this._runner.exec('grep', [ '-E', `^${info.user}:`, '/etc/passwd' ]),
-                                    this._runner.exec('grep', [ '-E', `^${info.group}:`, '/etc/group' ]),
+                                    this._runner.exec('grep', ['-E', `^${info.user}:`, '/etc/passwd']),
+                                    this._runner.exec('grep', ['-E', `^${info.group}:`, '/etc/group']),
                                 ]);
                             })
-                            .then(([ userInfo, groupInfo ]) => {
+                            .then(([userInfo, groupInfo]) => {
                                 let userDb = userInfo.stdout.trim().split(':');
                                 if (userInfo.code !== 0 || userDb.length !== 7) {
                                     info.user = null;
@@ -242,36 +242,9 @@ class Directory extends EventEmitter {
                             });
                     },
                     Promise.resolve()
-                );
-            });
-    }
-
-    /**
-     * Start the server
-     * @param {string} name                     Config section name
-     * @return {Promise}
-     */
-    start(name) {
-        if (name !== this._name)
-            return Promise.reject(new Error(`Server ${name} was not properly initialized`));
-
-        return Array.from(this._app.get('modules')).reduce(
-                (prev, [ curName, curModule ]) => {
-                    return prev.then(() => {
-                        if (!curModule.register)
-                            return;
-
-                        let result = curModule.register(name);
-                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
-                            throw new Error(`Module '${curName}' register() did not return a Promise`);
-                        return result;
-                    });
-                },
-                Promise.resolve()
-            )
+                )
+            })
             .then(() => {
-                this._logger.debug('directory', 'Starting the server');
-
                 return Array.from(this.directories.keys()).reduce(
                     (prev, cur) => {
                         let info = this.directories.get(cur);
@@ -311,28 +284,28 @@ class Directory extends EventEmitter {
                             })
                             .then(() => {
                                 return this._filer.lockUpdate(
-                                        path.join(info.dataDir, '.bhdir.json'),
-                                        contents => {
-                                            let json;
-                                            try {
-                                                json = JSON.parse(contents);
-                                                if (typeof json !== 'object')
-                                                    return Promise.reject(new Error(`.bhdir.json of ${cur} is damaged`));
-                                            } catch (error) {
-                                                json = {};
-                                            }
-
-                                            if (!json.directory)
-                                                json.directory = {};
-                                            if (!json.directory.format)
-                                                json.directory.format = 2;
-                                            if (!json.directory.upgrading)
-                                                json.directory.upgrading = false;
-
-                                            info.enabled = (json.directory.format === 2);
-
-                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                    path.join(info.dataDir, '.bhdir.json'),
+                                    contents => {
+                                        let json;
+                                        try {
+                                            json = JSON.parse(contents);
+                                            if (typeof json !== 'object')
+                                                return Promise.reject(new Error(`.bhdir.json of ${cur} is damaged`));
+                                        } catch (error) {
+                                            json = {};
                                         }
+
+                                        if (!json.directory)
+                                            json.directory = {};
+                                        if (!json.directory.format)
+                                            json.directory.format = 2;
+                                        if (!json.directory.upgrading)
+                                            json.directory.upgrading = false;
+
+                                        info.enabled = (json.directory.format === 2);
+
+                                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                    }
                                     )
                                     .then(() => {
                                         if (!info.enabled)
@@ -342,6 +315,34 @@ class Directory extends EventEmitter {
                     },
                     Promise.resolve()
                 );
+            });
+    }
+
+    /**
+     * Start the server
+     * @param {string} name                     Config section name
+     * @return {Promise}
+     */
+    start(name) {
+        if (name !== this._name)
+            return Promise.reject(new Error(`Server ${name} was not properly initialized`));
+
+        return Array.from(this._app.get('modules')).reduce(
+                (prev, [ curName, curModule ]) => {
+                    return prev.then(() => {
+                        if (!curModule.register)
+                            return;
+
+                        let result = curModule.register(name);
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
+                            throw new Error(`Module '${curName}' register() did not return a Promise`);
+                        return result;
+                    });
+                },
+                Promise.resolve()
+            )
+            .then(() => {
+                this._logger.debug('directory', 'Starting the server');
             });
     }
 
