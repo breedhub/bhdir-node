@@ -64,6 +64,7 @@ class Upload {
             return this._help.helpUpload(argv);
 
         let uploadFile = args.targets[1];
+        let uploadName = path.basename(uploadFile);
         let uploadPath = args.targets[2];
 
         return new Promise((resolve, reject) => {
@@ -80,6 +81,7 @@ class Upload {
                     args: [
                         uploadPath,
                         contents,
+                        uploadName
                     ]
                 };
 

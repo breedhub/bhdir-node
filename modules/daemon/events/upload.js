@@ -67,16 +67,17 @@ class Upload {
             this.daemon.send(id, data);
         };
 
-        if (message.args.length !== 2)
+        if (message.args.length !== 2 && message.args.length !== 3)
             return reply(false, 'Invalid arguments list');
 
         let name = message.args[0];
         let contents = message.args[1];
+        let saveName = message.args.length === 3 ? message.args[2] : null;
 
         if (!this._util.isUuid(name) && !this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
-        this.directory.uploadFile(name, Buffer.from(contents, 'base64'))
+        this.directory.uploadFile(name, Buffer.from(contents, 'base64'), saveName)
             .then(id => {
                 reply(true, id);
             })

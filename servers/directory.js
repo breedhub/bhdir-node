@@ -1393,9 +1393,10 @@ class Directory extends EventEmitter {
      * Upload a file
      * @param {string} variable                     Variable name
      * @param {Buffer} buffer                       File
+     * @param {string} [saveName]                   Set name of the file to this
      * @return {Promise}                            Resolves to id
      */
-    uploadFile(variable, buffer) {
+    uploadFile(variable, buffer, saveName) {
         return Promise.resolve()
             .then(() => {
                 if (!this._util.isUuid(variable))
@@ -1464,19 +1465,32 @@ class Directory extends EventEmitter {
                         attrfile = path.join(directory, name + '.json');
                         binfile = path.join(directory, name + '.bin');
                         json.bin = binfile.substring(info.dataDir.length);
+                        if (saveName)
+                            json.bin = path.join(json.bin, saveName);
 
-                        return Promise.all([
-                            this._filer.lockWrite(
-                                attrfile,
-                                JSON.stringify(json, undefined, 4) + '\n',
-                                { mode: info.fileMode, uid: info.uid, gid: info.gid }
-                            ),
-                            this._filer.lockWriteBuffer(
-                                binfile,
-                                buffer,
-                                { mode: info.fileMode, uid: info.uid, gid: info.gid }
-                            ),
-                        ]);
+                        return Promise.resolve()
+                            .then(() => {
+                                if (saveName) {
+                                    return this._filer.createDirectory(
+                                        binfile,
+                                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                                    )
+                                }
+                            })
+                            .then(() => {
+                                return Promise.all([
+                                    this._filer.lockWrite(
+                                        attrfile,
+                                        JSON.stringify(json, undefined, 4) + '\n',
+                                        { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                                    ),
+                                    this._filer.lockWriteBuffer(
+                                        saveName ? path.join(binfile, saveName) : binfile,
+                                        buffer,
+                                        { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                                    ),
+                                ]);
+                            });
                     })
                     .then(() => {
                         this._index.insert(
@@ -1541,15 +1555,15 @@ class Directory extends EventEmitter {
                             let name;
                             let files = fs.readdirSync(dir);
                             let numbers = [];
-                            let reBin = /^(\d+)\.bin$/, reDir = /^(\d+)$/;
+                            let reJson = /^(\d+)\.json$/, reDir = /^(\d+)$/;
                             for (let file of files) {
-                                let result = reBin.exec(file);
+                                let result = reJson.exec(file);
                                 if (result)
                                     numbers.push(result[1]);
                             }
                             if (numbers.length) {
                                 numbers.sort();
-                                resolve(path.join(dir, numbers[numbers.length - 1] + '.bin'));
+                                resolve(path.join(dir, numbers[numbers.length - 1] + '.json'));
                             } else {
                                 numbers = [];
                                 for (let file of files) {
@@ -1579,13 +1593,17 @@ class Directory extends EventEmitter {
                     });
                 };
 
-                return loadDir(path.join(info.dataDir, filename, '.files'));
-            })
-            .then(filename => {
-                if (!filename)
-                    return null;
+                return loadDir(path.join(info.dataDir, filename, '.files'))
+                    .then(filename => {
+                        if (!filename)
+                            return null;
 
-                return this._filer.lockReadBuffer(filename);
+                        return this._filer.lockRead(filename)
+                            .then(contents => {
+                                let json = JSON.parse(contents);
+                                return this._filer.lockReadBuffer(path.join(info.dataDir, json.bin));
+                            });
+                    });
             });
     }
 
@@ -1626,7 +1644,15 @@ class Directory extends EventEmitter {
                         return this._filer.lockRead(file)
                             .then(contents => {
                                 let json = JSON.parse(contents);
-                                files.push({ id: json.id, mtime: json.mtime, path: file, bin: path.join(info.dataDir, json['bin']) });
+                                let bin = path.join(info.dataDir, json['bin']);
+                                let jsonDepth = file.split('/').length;
+                                let binDepth = bin.split('/').length;
+                                files.push({
+                                    id: json.id,
+                                    mtime: json.mtime,
+                                    path: file,
+                                    bin: (binDepth === jsonDepth + 1) ? path.dirname(bin) : bin
+                                });
                             });
                     }
                     )
@@ -1636,6 +1662,7 @@ class Directory extends EventEmitter {
                         for (let i = 0; i < (fdepth ? files.length - fdepth : files.length); i++) {
                             if (this._util.isUuid(files[i]['id']))
                                 this._index.del(this._index.constructor.binUuid(files[i]['id']));
+
                             promises.push(
                                 Promise.all([
                                     this._filer.remove(files[i]['path']),
