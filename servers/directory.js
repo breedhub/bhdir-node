@@ -573,7 +573,7 @@ class Directory extends EventEmitter {
                 .then(json => {
                     let result = {};
                     for (let key of Object.keys(json)) {
-                        if (!json[key])
+                        if (!json[key] || json[key]['value'] === null)
                             continue;
                         result[key] = json[key]['value'];
                     }
@@ -622,12 +622,7 @@ class Directory extends EventEmitter {
                             attrs = old;
                         if (!attrs)
                             attrs = {};
-
-                        attrs.mtime = Math.round(Date.now() / 1000);
-                        if (!attrs.ctime)
-                            attrs.ctime = attrs.mtime;
-                        if (!attrs.id)
-                            attrs.id = uuid.v4();
+                        this._initAttrs(attrs);
                         if (typeof value !== 'undefined')
                             attrs.value = value;
 
@@ -798,12 +793,13 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(json => {
+                                let result = typeof json[name] === 'undefined' ? null : json[name];
                                 if (!cacheResult)
-                                    return json[name];
+                                    return result;
 
-                                return this._cacher.set(variable, typeof json[name] === 'undefined' ? null : json[name])
+                                return this._cacher.set(variable, result)
                                     .then(() => {
-                                        return json[name];
+                                        return result;
                                     });
                             });
                     });
@@ -870,9 +866,12 @@ class Directory extends EventEmitter {
                                                     }
 
                                                     success = true;
-                                                    if (json[name])
-                                                        id = json[name]['id'];
-                                                    json[name] = null;
+                                                    if (!json[name])
+                                                        json[name] = {};
+                                                    this._initAttrs(json[name]);
+                                                    json[name].value = null;
+
+                                                    id = json[name]['id'];
                                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                 },
                                                 { mode: info.fileMode, uid: info.uid, gid: info.gid }
@@ -949,6 +948,9 @@ class Directory extends EventEmitter {
                                     if (promises.length)
                                         return Promise.all(promises);
                                 });
+                        },
+                        dir => {
+                            return Promise.resolve(path.basename(dir)[0] !== '.');
                         }
                     )
                     .then(() => {
@@ -957,7 +959,7 @@ class Directory extends EventEmitter {
                                 // do nothing
                             });
                     });
-            })
+            });
     }
 
     /**
@@ -982,8 +984,9 @@ class Directory extends EventEmitter {
         return this.get(variable, false, false)
             .then(info => {
                 if (!info)
-                    return null;
+                    info = {};
 
+                this._initAttrs(info);
                 info[name] = value;
                 return this.set(variable, info);
             });
@@ -1018,12 +1021,100 @@ class Directory extends EventEmitter {
 
         return this.get(variable, false, false)
             .then(info => {
-                if (!info)
+                if (!info || typeof info[name] === 'undefined')
                     return null;
 
                 delete info[name];
                 return this.set(variable, info);
             });
+    }
+
+    /**
+     * set history depth
+     * @param {string} variable                     Variable name
+     * @param {number|null} value                   History depth
+     * @return {Promise}
+     */
+    setHDepth(variable, value) {
+        if (value === null)
+            return this.delAttr(variable, 'hdepth');
+
+        return this.setAttr(variable, 'hdepth', value)
+            .then(id => {
+                return Promise.resolve()
+                    .then(() => {
+                        if (!this._util.isUuid(variable))
+                            return this.parseVariable(variable);
+
+                        let search = this._index.search(this._index.constructor.binUuid(variable));
+                        if (!search || search.type !== 'variable')
+                            return [ null, null ];
+
+                        return [ search.directory, search.path ];
+                    })
+                    .then(([ repo, filename ]) => {
+                        if (!repo || !filename)
+                            return id;
+
+                        variable = `${repo}:${filename}`;
+                        this._logger.debug('directory', `Applying hdepth of ${variable}`);
+
+                        let info = this.directories.get(repo);
+                        return this._filer.process(
+                            path.join(info.dataDir, filename),
+                            null,
+                            dir => {
+                                if (path.basename(dir)[0] === '.')
+                                    return Promise.resolve(false);
+
+                                dir = dir.substring(info.dataDir.length);
+
+                                return Promise.all([
+                                    this.clearHistory(`${repo}:${dir}`, value),
+                                    this.clearFiles(`${repo}:${dir}`, value),
+                                ]);
+                            }
+                            )
+                            .then(() => {
+                                return id;
+                            });
+                    });
+            });
+    }
+
+    /**
+     * Get history depth
+     * @param {string} variable                     Variable name
+     * @return {Promise}                            Resolves to history depth
+     */
+    getHDepth(variable) {
+        let getDepth = variable => {
+            return this.getAttr(variable, 'hdepth')
+                .then(hdepth => {
+                    if (hdepth !== null)
+                        return hdepth;
+
+                        if (!this._util.isUuid(variable))
+                            return this.parseVariable(variable);
+
+                        let search = this._index.search(this._index.constructor.binUuid(variable));
+                        if (!search)
+                            return [ null, null ];
+
+                        return [ search.directory, search.path ];
+                    })
+                    .then(([ repo, filename ]) => {
+                        if (!repo || !filename)
+                            return null;
+
+                        let dir = path.dirname(filename);
+                        if (dir === '/')
+                            return null;
+
+                        return getDepth(`${repo}:${dir}`);
+                    });
+        };
+        return getDepth(variable);
     }
 
     /**
@@ -1111,6 +1202,15 @@ class Directory extends EventEmitter {
                                 attr: history.substring(info.dataDir.length),
                             }
                         );
+                    })
+                    .then(() => {
+                        return this.getHDepth(variable);
+                    })
+                    .then(hdepth => {
+                        if (hdepth)
+                            return this.clearHistory(variable, hdepth);
+                    })
+                    .then(() => {
                         return json.id;
                     });
             });
@@ -1119,9 +1219,10 @@ class Directory extends EventEmitter {
     /**
      * Clear all the history
      * @param {string} variable                     Variable name
+     * @param {number} [hdepth]                     History depth
      * @return {Promise}
      */
-    clearHistory(variable) {
+    clearHistory(variable, hdepth) {
         return Promise.resolve()
             .then(() => {
                 if (!this._util.isUuid(variable))
@@ -1138,24 +1239,64 @@ class Directory extends EventEmitter {
                     return;
 
                 variable = `${repo}:${filename}`;
-                this._logger.debug('directory', `Clearing history of ${variable}`);
+                this._logger.debug('directory', `Clearing history of ${variable} (hdepth: ${hdepth})`);
 
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
+                let files = [];
                 return this._filer.process(
-                    path.join(info.dataDir, filename, '.history'),
-                    file => {
-                        if (!re.test(path.basename(file)))
-                            return Promise.resolve();
+                        path.join(info.dataDir, filename, '.history'),
+                        file => {
+                            if (!re.test(path.basename(file)))
+                                return Promise.resolve();
 
-                        return this._filer.lockRead(file)
-                            .then(contents => {
-                                let json = JSON.parse(contents);
-                                if (this._util.isUuid(json['id']))
-                                    this._index.del(this._index.constructor.binUuid(json['id']));
-                            });
-                    }
-                );
+                            return this._filer.lockRead(file)
+                                .then(contents => {
+                                    let json = JSON.parse(contents);
+                                    files.push({ id: json.id, mtime: json.mtime, path: file });
+                                });
+                        }
+                    )
+                    .then(() => {
+                        files.sort((a, b) => { return a.mtime - b.mtime; });
+                        let promises = [];
+                        for (let i = 0; i < (hdepth ? files.length - hdepth : files.length); i++) {
+                            if (this._util.isUuid(files[i]['id']))
+                                this._index.del(this._index.constructor.binUuid(files[i]['id']));
+                            promises.push(this._filer.remove(files[i]['path']));
+                        }
+
+                        if (promises.length)
+                            return Promise.all(promises);
+                    })
+                    .then(() => {
+                        let deleteEmpty = files => {
+                            let todo = [];
+                            return files.reduce(
+                                    (prev, cur) => {
+                                        return prev.then(() => {
+                                            try {
+                                                let dir = path.dirname(cur.path);
+                                                if (!fs.readdirSync(dir).length) {
+                                                    if (path.basename(dir) !== '.history' && todo.indexOf(dir) === -1)
+                                                        todo.push(dir);
+                                                    return this._filer.remove(dir);
+                                                }
+                                            } catch (error) {
+                                                // do nothing
+                                            }
+                                            return Promise.resolve();
+                                        });
+                                    },
+                                    Promise.resolve()
+                                )
+                                .then(() => {
+                                    if (todo.length)
+                                        return deleteEmpty(todo);
+                                })
+                        };
+                        return deleteEmpty(files);
+                    });
             });
     }
 
@@ -1259,6 +1400,15 @@ class Directory extends EventEmitter {
                                 bin: binfile.substring(info.dataDir.length),
                             }
                         );
+                    })
+                    .then(() => {
+                        return this.getHDepth(variable);
+                    })
+                    .then(hdepth => {
+                        if (hdepth)
+                            return this.clearFiles(variable, hdepth);
+                    })
+                    .then(() => {
                         return json.id;
                     });
             });
@@ -1353,9 +1503,10 @@ class Directory extends EventEmitter {
     /**
      * Clear all uploaded files
      * @param {string} variable                     Variable name
+     * @param {number} [hdepth]                     History depth
      * @return {Promise}
      */
-    clearFiles(variable) {
+    clearFiles(variable, hdepth) {
         return Promise.resolve()
             .then(() => {
                 if (!this._util.isUuid(variable))
@@ -1372,10 +1523,11 @@ class Directory extends EventEmitter {
                     return;
 
                 variable = `${repo}:${filename}`;
-                this._logger.debug('directory', `Clearing files of ${variable}`);
+                this._logger.debug('directory', `Clearing files of ${variable} (hdepth: ${hdepth})`);
 
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
+                let files = [];
                 return this._filer.process(
                     path.join(info.dataDir, filename, '.files'),
                     file => {
@@ -1385,11 +1537,55 @@ class Directory extends EventEmitter {
                         return this._filer.lockRead(file)
                             .then(contents => {
                                 let json = JSON.parse(contents);
-                                if (this._util.isUuid(json['id']))
-                                    this._index.del(this._index.constructor.binUuid(json['id']));
+                                files.push({ id: json.id, mtime: json.mtime, path: file, bin: json['bin'] });
                             });
                     }
-                );
+                    )
+                    .then(() => {
+                        files.sort((a, b) => { return a.mtime - b.mtime; });
+                        let promises = [];
+                        for (let i = 0; i < (hdepth ? files.length - hdepth : files.length); i++) {
+                            if (this._util.isUuid(files[i]['id']))
+                                this._index.del(this._index.constructor.binUuid(files[i]['id']));
+                            promises.push(
+                                Promise.all([
+                                    this._filer.remove(files[i]['path']),
+                                    this._filer.remove(files[i]['bin']),
+                                ])
+                            );
+                        }
+
+                        if (promises.length)
+                            return Promise.all(promises);
+                    })
+                    .then(() => {
+                        let deleteEmpty = files => {
+                            let todo = [];
+                            return files.reduce(
+                                (prev, cur) => {
+                                    return prev.then(() => {
+                                        try {
+                                            let dir = path.dirname(cur.path);
+                                            if (!fs.readdirSync(dir).length) {
+                                                if (path.basename(dir) !== '.files' && todo.indexOf(dir) === -1)
+                                                    todo.push(dir);
+                                                return this._filer.remove(dir);
+                                            }
+                                        } catch (error) {
+                                            // do nothing
+                                        }
+                                        return Promise.resolve();
+                                    });
+                                },
+                                Promise.resolve()
+                                )
+                                .then(() => {
+                                    if (todo.length)
+                                        return deleteEmpty(todo);
+                                })
+                        };
+                        return deleteEmpty(files);
+                    });
             });
     }
 
@@ -1418,6 +1614,20 @@ class Directory extends EventEmitter {
         while (result.length < length)
             result = '0' + result;
         return result;
+    }
+
+    /**
+     * Initialize variable structure
+     * @param {object} attrs
+     * @return {object}
+     */
+    _initAttrs(attrs) {
+        attrs.mtime = Math.round(Date.now() / 1000);
+        if (!attrs.ctime)
+            attrs.ctime = attrs.mtime;
+        if (!attrs.id)
+            attrs.id = uuid.v4();
+        return attrs;
     }
 
     /**

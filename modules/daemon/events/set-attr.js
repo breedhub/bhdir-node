@@ -80,7 +80,13 @@ class SetAttr {
         if (this.directory.constructor.protectedAttrs.indexOf(name) !== -1)
             return reply(false, 'Protected attribute');
 
-        this.directory.setAttr(filename, name, value)
+        Promise.resolve()
+            .then(() => {
+                if (name === 'hdepth')
+                    return this.directory.setHDepth(filename, value);
+
+                return this.directory.setAttr(filename, name, value)
+            })
             .then(id => {
                 reply(true, id);
             })

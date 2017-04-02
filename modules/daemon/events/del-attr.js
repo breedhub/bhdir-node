@@ -74,7 +74,13 @@ class DelAttr {
         if (this.directory.constructor.protectedAttrs.indexOf(name) !== -1)
             return reply(false, 'Protected attribute');
 
-        this.directory.delAttr(filename, name)
+        Promise.resolve()
+            .then(() => {
+                if (name === 'hdepth')
+                    return this.directory.setHDepth(filename, null);
+
+                return this.directory.delAttr(filename, name)
+            })
             .then(() => {
                 reply(true);
             })
