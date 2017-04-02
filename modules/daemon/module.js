@@ -70,6 +70,9 @@ class Daemon {
         let rm = this._app.get('modules.daemon.events.rm');
         server.on('rm', rm.handle.bind(rm));
 
+        let exists = this._app.get('modules.daemon.events.exists');
+        server.on('exists', exists.handle.bind(exists));
+
         let wait = this._app.get('modules.daemon.events.wait');
         server.on('wait', wait.handle.bind(wait));
 

@@ -68,6 +68,7 @@ class Help {
                 '\tget\t\tGet variable value\n' +
                 '\tdel\t\tDelete a variable\n' +
                 '\trm\t\tRemove a branch\n' +
+                '\texists\t\tTest if branch exists\n' +
                 '\twait\t\tWait for variable update\n' +
                 '\ttouch\t\tTrigger variable update\n' +
                 '\tset-attr\tSet attribute\n' +
@@ -75,7 +76,7 @@ class Help {
                 '\tdel-attr\tDelete attribute\n' +
                 '\tupload\t\tUpload a file\n' +
                 '\tdownload\tDownload a file\n' +
-                '\tindex\tBuild index\n' +
+                '\tindex\t\tBuild index\n' +
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
                 '\trestart\t\tRestart the daemon\n' +
@@ -186,6 +187,21 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl rm <path> [-z <socket>]\n\n' +
                 '\tRemove a branch.\n'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Exists command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpExists(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl exists <path> [-z <socket>]\n\n' +
+                '\tTest if branch exists.\n'
             )
             .then(() => {
                 process.exit(0);
