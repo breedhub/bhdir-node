@@ -330,7 +330,7 @@ class Index extends EventEmitter {
                 type: type,
                 record: record,
             };
-            this.confirmation.set(id, confirm);
+            info.confirmation.set(id, confirm);
         }
     }
 
