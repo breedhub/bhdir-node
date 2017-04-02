@@ -890,9 +890,6 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(() => {
-                                return Promise.all([ this.clearHistory(filename), this.clearFiles(filename) ]);
-                            })
-                            .then(() => {
                                 if (id && this._util.isUuid(id))
                                     return this._index.del(this._index.constructor.binUuid(id));
                             })
@@ -1030,7 +1027,7 @@ class Directory extends EventEmitter {
     }
 
     /**
-     * set history depth
+     * Set history depth
      * @param {string} variable                     Variable name
      * @param {number|null} value                   History depth
      * @return {Promise}
@@ -1094,25 +1091,28 @@ class Directory extends EventEmitter {
                     if (hdepth !== null)
                         return hdepth;
 
-                        if (!this._util.isUuid(variable))
-                            return this.parseVariable(variable);
+                    return Promise.resolve()
+                        .then(() => {
+                            if (!this._util.isUuid(variable))
+                                return this.parseVariable(variable);
 
-                        let search = this._index.search(this._index.constructor.binUuid(variable));
-                        if (!search)
-                            return [ null, null ];
+                            let search = this._index.search(this._index.constructor.binUuid(variable));
+                            if (!search)
+                                return [ null, null ];
 
-                        return [ search.directory, search.path ];
-                    })
-                    .then(([ repo, filename ]) => {
-                        if (!repo || !filename)
-                            return null;
+                            return [search.directory, search.path];
+                        })
+                        .then(([repo, filename]) => {
+                            if (!repo || !filename)
+                                return null;
 
-                        let dir = path.dirname(filename);
-                        if (dir === '/')
-                            return null;
+                            let dir = path.dirname(filename);
+                            if (dir === '/')
+                                return null;
 
-                        return getDepth(`${repo}:${dir}`);
-                    });
+                            return getDepth(`${repo}:${dir}`);
+                        });
+                });
         };
         return getDepth(variable);
     }
@@ -1207,7 +1207,7 @@ class Directory extends EventEmitter {
                         return this.getHDepth(variable);
                     })
                     .then(hdepth => {
-                        if (hdepth)
+                        if (hdepth !== null)
                             return this.clearHistory(variable, hdepth);
                     })
                     .then(() => {
@@ -1298,6 +1298,94 @@ class Directory extends EventEmitter {
                         return deleteEmpty(files);
                     });
             });
+    }
+
+    /**
+     * Set files depth
+     * @param {string} variable                     Variable name
+     * @param {number|null} value                   Files depth
+     * @return {Promise}
+     */
+    setFDepth(variable, value) {
+        if (value === null)
+            return this.delAttr(variable, 'fdepth');
+
+        return this.setAttr(variable, 'fdepth', value)
+            .then(id => {
+                return Promise.resolve()
+                    .then(() => {
+                        if (!this._util.isUuid(variable))
+                            return this.parseVariable(variable);
+
+                        let search = this._index.search(this._index.constructor.binUuid(variable));
+                        if (!search || search.type !== 'variable')
+                            return [ null, null ];
+
+                        return [ search.directory, search.path ];
+                    })
+                    .then(([ repo, filename ]) => {
+                        if (!repo || !filename)
+                            return id;
+
+                        variable = `${repo}:${filename}`;
+                        this._logger.debug('directory', `Applying fdepth of ${variable}`);
+
+                        let info = this.directories.get(repo);
+                        return this._filer.process(
+                                path.join(info.dataDir, filename),
+                                null,
+                                dir => {
+                                    if (path.basename(dir)[0] === '.')
+                                        return Promise.resolve(false);
+
+                                    dir = dir.substring(info.dataDir.length);
+
+                                    return this.clearFiles(`${repo}:${dir}`, value);
+                                }
+                            )
+                            .then(() => {
+                                return id;
+                            });
+                    });
+            });
+    }
+
+    /**
+     * Get files depth
+     * @param {string} variable                     Variable name
+     * @return {Promise}                            Resolves to files depth
+     */
+    getFDepth(variable) {
+        let getDepth = variable => {
+            return this.getAttr(variable, 'fdepth')
+                .then(fdepth => {
+                    if (fdepth !== null)
+                        return fdepth;
+
+                    return Promise.resolve()
+                        .then(() => {
+                            if (!this._util.isUuid(variable))
+                                return this.parseVariable(variable);
+
+                            let search = this._index.search(this._index.constructor.binUuid(variable));
+                            if (!search)
+                                return [ null, null ];
+
+                            return [ search.directory, search.path ]
+                        })
+                        .then(([ repo, filename ]) => {
+                            if (!repo || !filename)
+                                return null;
+
+                            let dir = path.dirname(filename);
+                            if (dir === '/')
+                                return null;
+
+                            return getDepth(`${repo}:${dir}`);
+                        });
+                })
+        };
+        return getDepth(variable);
     }
 
     /**
@@ -1402,11 +1490,11 @@ class Directory extends EventEmitter {
                         );
                     })
                     .then(() => {
-                        return this.getHDepth(variable);
+                        return this.getFDepth(variable);
                     })
-                    .then(hdepth => {
-                        if (hdepth)
-                            return this.clearFiles(variable, hdepth);
+                    .then(fdepth => {
+                        if (fdepth !== null)
+                            return this.clearFiles(variable, fdepth);
                     })
                     .then(() => {
                         return json.id;
@@ -1503,10 +1591,10 @@ class Directory extends EventEmitter {
     /**
      * Clear all uploaded files
      * @param {string} variable                     Variable name
-     * @param {number} [hdepth]                     History depth
+     * @param {number} [fdepth]                     Files depth
      * @return {Promise}
      */
-    clearFiles(variable, hdepth) {
+    clearFiles(variable, fdepth) {
         return Promise.resolve()
             .then(() => {
                 if (!this._util.isUuid(variable))
@@ -1523,7 +1611,7 @@ class Directory extends EventEmitter {
                     return;
 
                 variable = `${repo}:${filename}`;
-                this._logger.debug('directory', `Clearing files of ${variable} (hdepth: ${hdepth})`);
+                this._logger.debug('directory', `Clearing files of ${variable} (fdepth: ${fdepth})`);
 
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
@@ -1537,14 +1625,14 @@ class Directory extends EventEmitter {
                         return this._filer.lockRead(file)
                             .then(contents => {
                                 let json = JSON.parse(contents);
-                                files.push({ id: json.id, mtime: json.mtime, path: file, bin: json['bin'] });
+                                files.push({ id: json.id, mtime: json.mtime, path: file, bin: path.join(info.dataDir, json['bin']) });
                             });
                     }
                     )
                     .then(() => {
                         files.sort((a, b) => { return a.mtime - b.mtime; });
                         let promises = [];
-                        for (let i = 0; i < (hdepth ? files.length - hdepth : files.length); i++) {
+                        for (let i = 0; i < (fdepth ? files.length - fdepth : files.length); i++) {
                             if (this._util.isUuid(files[i]['id']))
                                 this._index.del(this._index.constructor.binUuid(files[i]['id']));
                             promises.push(
@@ -1562,22 +1650,22 @@ class Directory extends EventEmitter {
                         let deleteEmpty = files => {
                             let todo = [];
                             return files.reduce(
-                                (prev, cur) => {
-                                    return prev.then(() => {
-                                        try {
-                                            let dir = path.dirname(cur.path);
-                                            if (!fs.readdirSync(dir).length) {
-                                                if (path.basename(dir) !== '.files' && todo.indexOf(dir) === -1)
-                                                    todo.push(dir);
-                                                return this._filer.remove(dir);
+                                    (prev, cur) => {
+                                        return prev.then(() => {
+                                            try {
+                                                let dir = path.dirname(cur.path);
+                                                if (!fs.readdirSync(dir).length) {
+                                                    if (path.basename(dir) !== '.files' && todo.indexOf(dir) === -1)
+                                                        todo.push(dir);
+                                                    return this._filer.remove(dir);
+                                                }
+                                            } catch (error) {
+                                                // do nothing
                                             }
-                                        } catch (error) {
-                                            // do nothing
-                                        }
-                                        return Promise.resolve();
-                                    });
-                                },
-                                Promise.resolve()
+                                            return Promise.resolve();
+                                        });
+                                    },
+                                    Promise.resolve()
                                 )
                                 .then(() => {
                                     if (todo.length)

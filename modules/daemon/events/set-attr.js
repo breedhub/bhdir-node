@@ -80,10 +80,19 @@ class SetAttr {
         if (this.directory.constructor.protectedAttrs.indexOf(name) !== -1)
             return reply(false, 'Protected attribute');
 
+        let depth;
+        if ([ 'hdepth', 'fdepth' ].indexOf(name) !== -1) {
+            depth = parseInt(value);
+            if (!isFinite(depth))
+                return reply(false, 'Invalid depth');
+        }
+
         Promise.resolve()
             .then(() => {
                 if (name === 'hdepth')
-                    return this.directory.setHDepth(filename, value);
+                    return this.directory.setHDepth(filename, depth);
+                if (name === 'fdepth')
+                    return this.directory.setFDepth(filename, depth);
 
                 return this.directory.setAttr(filename, name, value)
             })

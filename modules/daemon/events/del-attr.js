@@ -78,6 +78,8 @@ class DelAttr {
             .then(() => {
                 if (name === 'hdepth')
                     return this.directory.setHDepth(filename, null);
+                if (name === 'fdepth')
+                    return this.directory.setFDepth(filename, null);
 
                 return this.directory.delAttr(filename, name)
             })
