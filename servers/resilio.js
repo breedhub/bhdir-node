@@ -323,22 +323,20 @@ class Resilio extends EventEmitter {
                 if (!info.enabled)
                     continue;
 
-                let file;
                 if (result[1] === path.join(info.dataDir, '.index.1')) {
                     info.needLoad = true;
                     indexPromises.push(this._index.load(directory));
                 } else if (result[1].startsWith(info.dataDir) && result[1].endsWith('/.vars.json')) {
-                    file = path.dirname(result[1]);
-                }
-
-                if (file && file.indexOf('/.') === -1 && files.indexOf(file) === -1) {
-                    this._logger.info(`Path updated: ${file}`);
-                    files.push({
-                        directory: directory,
-                        dataDir: info.dataDir,
-                        file: file
-                    });
-                    varPromises.push(this._filer.lockRead(path.join(file, '.vars.json')));
+                    let file = path.dirname(result[1]);
+                    if (file.indexOf('/.') === -1 && files.indexOf(file) === -1) {
+                        this._logger.info(`Path updated: ${file}`);
+                        files.push({
+                            directory: directory,
+                            dataDir: info.dataDir,
+                            file: file
+                        });
+                        varPromises.push(this._filer.lockRead(path.join(file, '.vars.json')));
+                    }
                 }
             }
         }
