@@ -159,7 +159,7 @@ class Directory extends EventEmitter {
                         info.group = bhdirConfig[group].group || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
                         this.directories.set(name, info);
-                        if (!!bhdirConfig[group].default)
+                        if (bhdirConfig[group].default === true || bhdirConfig[group].default === 'yes')
                             this.default = name;
                     }
                 }

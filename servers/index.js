@@ -72,27 +72,43 @@ class Index extends EventEmitter {
     init(name) {
         this._name = name;
 
-        for (let [ directory, info ] of this._directory.directories) {
-            this.indexes.set(
-                directory,
-                {
-                    enabled: info.enabled,
-                    dataDir: info.dataDir,
-                    dirMode: info.dirMode,
-                    fileMode: info.fileMode,
-                    uid: info.uid,
-                    gid: info.gid,
-                    tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
-                    confirmation: new Map(),
-                    needSave: false,
-                    needLoad: false,
-                    saving: false,
-                    loading: false,
+        return Promise.resolve()
+            .then(() => {
+                let promises = [];
+                for (let [ directory, info ] of this._directory.directories) {
+                    this.indexes.set(
+                        directory,
+                        {
+                            enabled: info.enabled,
+                            dataDir: info.dataDir,
+                            dirMode: info.dirMode,
+                            fileMode: info.fileMode,
+                            uid: info.uid,
+                            gid: info.gid,
+                            tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
+                            confirmation: new Map(),
+                            needSave: false,
+                            needLoad: false,
+                            saving: false,
+                            loading: false,
+                        }
+                    );
+                    if (info.enabled) {
+                        let exists;
+                        try {
+                            fs.accessSync(path.join(info.dataDir, '.index.1'), fs.constants.F_OK);
+                            exists = true;
+                        } catch (error) {
+                            exists = false;
+                        }
+                        if (!exists)
+                            promises.push(this.build(directory));
+                    }
                 }
-            );
-        }
 
-        return Promise.resolve();
+                if (promises.length)
+                    return Promise.all(promises);
+            });
     }
 
     /**
@@ -249,6 +265,10 @@ class Index extends EventEmitter {
                 },
                 error => {
                     info.loading = false;
+                    if (error.code === 'ENOENT') {
+                        info.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+                        return;
+                    }
                     throw error;
                 }
             );

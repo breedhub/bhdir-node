@@ -76,18 +76,18 @@ class Resilio extends EventEmitter {
             return Promise.reject(new Error(`Server ${name} was not properly initialized`));
 
         return Array.from(this._app.get('modules')).reduce(
-            (prev, [curName, curModule]) => {
-                return prev.then(() => {
-                    if (!curModule.register)
-                        return;
+                (prev, [curName, curModule]) => {
+                    return prev.then(() => {
+                        if (!curModule.register)
+                            return;
 
-                    let result = curModule.register(name);
-                    if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
-                        throw new Error(`Module '${curName}' register() did not return a Promise`);
-                    return result;
-                });
-            },
-            Promise.resolve()
+                        let result = curModule.register(name);
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
+                            throw new Error(`Module '${curName}' register() did not return a Promise`);
+                        return result;
+                    });
+                },
+                Promise.resolve()
             )
             .then(() => {
                 this._logger.debug('resilio', 'Starting the server');
@@ -154,6 +154,9 @@ class Resilio extends EventEmitter {
                     .then(() => {
                         let promises = [];
                         for (let [ directory, info ] of this._index.indexes) {
+                            if (!info.enabled)
+                                continue;
+
                             info.needLoad = true;
                             promises.push(this._index.load(directory));
                         }
