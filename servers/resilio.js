@@ -317,6 +317,9 @@ class Resilio extends EventEmitter {
                 continue;
 
             for (let [ directory, info ] of this._index.indexes) {
+                if (!info.enabled)
+                    continue;
+
                 let file;
                 if (result[1] === path.join(info.dataDir, '.index.1')) {
                     info.needLoad = true;
