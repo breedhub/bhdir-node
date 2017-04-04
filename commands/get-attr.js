@@ -103,9 +103,10 @@ class GetAttr {
                     .then(() => {
                         if (getName) {
                             return this._app.info(
-                                (typeof response.results[0] === 'object' ?
+                                typeof response.results[0] === 'object' ?
                                     JSON.stringify(response.results[0]) :
-                                    response.results[0]) + '\n');
+                                    response.results[0]
+                            );
                         }
 
                         let output = '';
@@ -137,7 +138,7 @@ class GetAttr {
 
                         output = output.trim();
                         if (output.length)
-                            return this._app.info(output + '\n');
+                            return this._app.info(output);
                     })
                     .then(() => {
                         return response.results[0] === null ? 10 : 0;
@@ -191,9 +192,6 @@ class GetAttr {
      * @param {...*} args
      */
     error(...args) {
-        if (args.length)
-            args[args.length - 1] = args[args.length - 1] + '\n';
-
         return this._app.error(...args)
             .then(
                 () => {

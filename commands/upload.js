@@ -94,7 +94,7 @@ class Upload {
                         if (!response.success)
                             throw new Error(`Error: ${response.message}`);
 
-                        return this._app.info(response.results[0] + '\n');
+                        return this._app.info(response.results[0]);
                     })
                     .then(() => {
                         process.exit(0);
@@ -145,9 +145,6 @@ class Upload {
      * @param {...*} args
      */
     error(...args) {
-        if (args.length)
-            args[args.length - 1] = args[args.length - 1] + '\n';
-
         return this._app.error(...args)
             .then(
                 () => {

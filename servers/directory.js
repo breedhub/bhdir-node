@@ -396,9 +396,10 @@ class Directory extends EventEmitter {
     /**
      * Set variable
      * @param {string} filename                     Variable path
+     * @param {boolean} [allowRoot=false]           Allow root as variable
      * @return {boolean}
      */
-    validatePath(filename) {
+    validatePath(filename, allowRoot = false) {
         if (typeof filename !== 'string' || !filename.length)
             return false;
 
@@ -419,6 +420,9 @@ class Directory extends EventEmitter {
         let info = this.directories.get(dir);
         if (!info || !info.enabled)
             return false;
+
+        if (allowRoot && name === '/')
+            return true;
 
         return (
             name.length &&
@@ -447,26 +451,23 @@ class Directory extends EventEmitter {
     /**
      * Get directory and filename from variable name
      * @param {string} variable                     Variable name
+     * @param {boolean} [allowRoot=false]           Allow root as variable
      * @return {Promise}                            Resolves to [ directory, filename ]
      */
-    parseVariable(variable) {
+    parseVariable(variable, allowRoot = false) {
         return new Promise((resolve, reject) => {
+            if (!this.validatePath(variable, allowRoot))
+                return reject(new Error('Invalid directory or path'));
+
             let dir, name;
             if (variable[0] === '/') {
-                if (!this.default)
-                    return reject(new Error('Default directory is not specified'));
                 dir = this.default;
                 name = variable;
             } else {
                 let parts = variable.split(':');
                 dir = parts.shift();
-                if (!parts.length)
-                    return reject(new Error('Empty path is not allowed'));
                 name = parts.join(':');
             }
-
-            if (!this.validatePath(variable))
-                return reject(new Error('Invalid directory or path'));
 
             resolve([ dir, name ]);
         });
@@ -583,7 +584,7 @@ class Directory extends EventEmitter {
     ls(variable) {
         this._logger.debug('directory', `Listing ${variable}`);
 
-        return this.parseVariable(variable)
+        return this.parseVariable(variable, true)
             .then(([ repo, filename ]) => {
                 let info = this.directories.get(repo);
                 let directory = path.join(info.dataDir, filename);

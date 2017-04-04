@@ -87,7 +87,7 @@ class Help {
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
                 '\trestart\t\tRestart the daemon\n' +
-                '\tstatus\t\tQuery running status of the daemon\n'
+                '\tstatus\t\tQuery running status of the daemon'
             )
             .then(() => {
                 process.exit(0);
@@ -102,7 +102,7 @@ class Help {
     helpHelp(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl help <command>\n\n' +
-                '\tPrint help for the given command\n'
+                '\tPrint help for the given command'
             )
             .then(() => {
                 process.exit(0);
@@ -118,7 +118,7 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl install\n\n' +
                 '\tThis command will register the program in the system\n' +
-                '\tand will create configuration in /etc/bhid by default\n'
+                '\tand will create configuration in /etc/bhid by default'
             )
             .then(() => {
                 process.exit(0);
@@ -133,7 +133,7 @@ class Help {
     helpLs(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl ls <path> [-o table|json] [-n] [-z <socket>]\n\n' +
-                '\tList variables of a path. By default table formatting is used. When formatting is table -n disables header\n'
+                '\tList variables of a path. By default table formatting is used. When formatting is table -n disables header'
             )
             .then(() => {
                 process.exit(0);
@@ -148,7 +148,7 @@ class Help {
     helpSet(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl set <path> <value> [-t <type>] [-z <socket>]\n\n' +
-                '\tSet variable to a value. <type> could be one of: string (default), number, boolean and json.\n'
+                '\tSet variable to a value. <type> could be one of: string (default), number, boolean and json.'
             )
             .then(() => {
                 process.exit(0);
@@ -163,7 +163,7 @@ class Help {
     helpGet(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl get <path>\n\n' +
-                '\tGet variable value\n'
+                '\tGet variable value'
             )
             .then(() => {
                 process.exit(0);
@@ -178,7 +178,7 @@ class Help {
     helpDel(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl del <path> [-z <socket>]\n\n' +
-                '\tDelete a variable.\n'
+                '\tDelete a variable.'
             )
             .then(() => {
                 process.exit(0);
@@ -193,7 +193,7 @@ class Help {
     helpRm(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl rm <path> [-z <socket>]\n\n' +
-                '\tRemove a branch.\n'
+                '\tRemove a branch.'
             )
             .then(() => {
                 process.exit(0);
@@ -208,7 +208,7 @@ class Help {
     helpExists(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl exists <path> [-z <socket>]\n\n' +
-                '\tTest if branch exists.\n'
+                '\tTest if branch exists.'
             )
             .then(() => {
                 process.exit(0);
@@ -223,7 +223,7 @@ class Help {
     helpWait(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl wait <path> [-t <seconds>]\n\n' +
-                '\tWait for variable update event and return new value. -t is optional timeout\n'
+                '\tWait for variable update event and return new value. -t is optional timeout'
             )
             .then(() => {
                 process.exit(0);
@@ -239,7 +239,7 @@ class Help {
     helpTouch(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl touch <path>\n\n' +
-                '\tTrigger variable update event.\n'
+                '\tTrigger variable update event.'
             )
             .then(() => {
                 process.exit(0);
@@ -254,7 +254,7 @@ class Help {
     helpSetAttr(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl set-attr <path> <name> <value> [-t <type>] [-z <socket>]\n\n' +
-                '\tSet attribute to a value. <type> could be one of: string (default), number, boolean and json.\n'
+                '\tSet attribute to a value. <type> could be one of: string (default), number, boolean and json.'
             )
             .then(() => {
                 process.exit(0);
@@ -270,7 +270,7 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl get-attr <path> [-a <name>] [-o table|json] [-n]\n\n' +
                 '\tGet attribute value. Returns all the attributes if no name provided, with table formatting by default.\n' +
-                '\tWhen formatting is table -n disables header\n'
+                '\tWhen formatting is table -n disables header'
             )
             .then(() => {
                 process.exit(0);
@@ -285,7 +285,7 @@ class Help {
     helpDelAttr(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl del-attr <path> <name> [-z <socket>]\n\n' +
-                '\tDelete an attribute.\n'
+                '\tDelete an attribute.'
             )
             .then(() => {
                 process.exit(0);
@@ -300,7 +300,7 @@ class Help {
     helpUpload(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl upload <filename> <path> [-z <socket>]\n\n' +
-                '\tUpload a file to the path.\n'
+                '\tUpload a file to the path.'
             )
             .then(() => {
                 process.exit(0);
@@ -315,7 +315,7 @@ class Help {
     helpDownload(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl download <path> <filename> [-z <socket>]\n\n' +
-                '\tDownload a file from the path.\n'
+                '\tDownload a file from the path.'
             )
             .then(() => {
                 process.exit(0);
@@ -330,7 +330,7 @@ class Help {
     helpIndex(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl index [-z <socket>]\n\n' +
-                '\tBuild index.\n'
+                '\tBuild index.'
             )
             .then(() => {
                 process.exit(0);
@@ -346,7 +346,7 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl start [-i]\n\n' +
                 '\tThis command will start the daemon. Install command will be ran before\n' +
-                '\tstarting the daemon if -i is set.\n'
+                '\tstarting the daemon if -i is set.'
             )
             .then(() => {
                 process.exit(0);
@@ -361,7 +361,7 @@ class Help {
     helpStop(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl stop\n\n' +
-                '\tThis command will stop the daemon\n'
+                '\tThis command will stop the daemon'
             )
             .then(() => {
                 process.exit(0);
@@ -377,7 +377,7 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl restart [-i]\n\n' +
                 '\tThis command will stop and start the daemon. Install command will be ran after\n' +
-                '\tstopping the daemon if -i is set.\n'
+                '\tstopping the daemon if -i is set.'
             )
             .then(() => {
                 process.exit(0);
@@ -392,7 +392,7 @@ class Help {
     helpStatus(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl status\n\n' +
-                '\tThis command will print daemon status\n'
+                '\tThis command will print daemon status'
             )
             .then(() => {
                 process.exit(0);
@@ -405,9 +405,6 @@ class Help {
      * @return {Promise}
      */
     error(...args) {
-        if (args.length)
-            args[args.length - 1] = args[args.length - 1] + '\n';
-
         return this._app.error(...args)
             .then(
                 () => {

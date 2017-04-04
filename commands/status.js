@@ -65,9 +65,6 @@ class Status {
      * @param {...*} args
      */
     error(...args) {
-        if (args.length)
-            args[args.length - 1] = args[args.length - 1] + '\n';
-
         return this._app.error(...args)
             .then(
                 () => {

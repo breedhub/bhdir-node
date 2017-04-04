@@ -82,9 +82,9 @@ class Get {
                     throw new Error(`Error: ${response.message}`);
 
                 return this._app.info(
-                        (typeof response.results[0] === 'object' ?
+                        typeof response.results[0] === 'object' ?
                             JSON.stringify(response.results[0]) :
-                            response.results[0]) + '\n'
+                            response.results[0]
                     )
                     .then(() => {
                         return response.results[0] === null ? 10 : 0;
@@ -138,9 +138,6 @@ class Get {
      * @param {...*} args
      */
     error(...args) {
-        if (args.length)
-            args[args.length - 1] = args[args.length - 1] + '\n';
-
         return this._app.error(...args)
             .then(
                 () => {

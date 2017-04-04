@@ -117,7 +117,7 @@ class Ls {
 
                 output = output.trim();
                 if (output.length)
-                    return this._app.info(output + '\n');
+                    return this._app.info(output);
             })
             .then(() => {
                 process.exit(0);
@@ -167,9 +167,6 @@ class Ls {
      * @param {...*} args
      */
     error(...args) {
-        if (args.length)
-            args[args.length - 1] = args[args.length - 1] + '\n';
-
         return this._app.error(...args)
             .then(
                 () => {
