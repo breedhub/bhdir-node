@@ -95,52 +95,6 @@ class Daemon extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('daemon', 'Starting the server');
-                let configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
-                try {
-                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
-                } catch (error) {
-                    throw new Error('Could not read bhdir.conf');
-                }
-
-                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
-                this._socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '600', 8);
-                if (isNaN(this._socketMode))
-                    this._socketMode = null;
-
-                let user = (bhdirConfig.socket && bhdirConfig.socket.user) || 'root';
-                let group = (bhdirConfig.socket && bhdirConfig.socket.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
-
-                return Promise.all([
-                        this._runner.exec('grep', [ '-E', `^${user}:`, '/etc/passwd' ]),
-                        this._runner.exec('grep', [ '-E', `^${group}:`, '/etc/group' ]),
-                    ])
-                    .then(([ userInfo, groupInfo ]) => {
-                        if (user.length && parseInt(user).toString() === user) {
-                            this._socketUser = parseInt(user);
-                        } else {
-                            let userDb = userInfo.stdout.trim().split(':');
-                            if (userInfo.code !== 0 || userDb.length !== 7) {
-                                this._socketUser = null;
-                                this._logger.error(`Socket user ${user} not found`);
-                            } else {
-                                this._socketUser = parseInt(userDb[2]);
-                            }
-                        }
-
-                        if (group.length && parseInt(group).toString() === group) {
-                            this._socketGroup = parseInt(group);
-                        } else {
-                            let groupDb = groupInfo.stdout.trim().split(':');
-                            if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                                this._socketGroup = null;
-                                this._logger.error(`Socket group ${group} not found`);
-                            } else {
-                                this._socketGroup = parseInt(groupDb[2]);
-                            }
-                        }
-                    });
-            })
-            .then(() => {
                 try {
                     let sockDir = path.join('/var', 'run', this._config.project);
                     let sockFile = path.join(sockDir, this._config.instance + '.sock');
@@ -205,25 +159,18 @@ class Daemon extends EventEmitter {
         if (error.syscall !== 'listen')
             return this._logger.error(new WError(error, 'Daemon.onServerError()'));
 
+        let msg;
         switch (error.code) {
             case 'EACCES':
-                this._logger.error(
-                    'Could not bind to daemon socket',
-                    () => { process.exit(1); }
-                );
+                msg = 'Could not bind to daemon socket';
                 break;
             case 'EADDRINUSE':
-                this._logger.error(
-                    'Daemon socket is already in use',
-                    () => { process.exit(1); }
-                );
+                msg = 'Daemon socket is already in use';
                 break;
             default:
-                this._logger.error(
-                    error,
-                    () => { process.exit(1); }
-                );
+                msg = error;
         }
+        this._logger.error(msg, () => { process.exit(1); });
     }
 
     /**
@@ -232,10 +179,10 @@ class Daemon extends EventEmitter {
     onListening() {
         let sock = `/var/run/${this._config.project}/${this._config.instance}.sock`;
         try {
-            if (this._socketMode !== null)
-                fs.chmodSync(sock, this._socketMode);
-            if (this._socketUser !== null && this._socketGroup !== null)
-                fs.chownSync(sock, this._socketUser, this._socketGroup);
+            if (this._directory.socketMode && !isNaN(this._directory.socketMode))
+                fs.chmodSync(sock, this._directory.socketMode);
+            if (this._directory.socketUid !== null && this._directory.socketGid !== null)
+                fs.chownSync(sock, this._directory.socketUid, this._directory.socketGid);
         } catch (error) {
             this._logger.error(`Error updating socket: ${error.message}`);
         }
@@ -378,6 +325,17 @@ class Daemon extends EventEmitter {
             }
             this.clients.delete(id);
         }
+    }
+
+    /**
+     * Retrieve directory server
+     * @return {Directory}
+     */
+    get _directory() {
+        if (this._directory_instance)
+            return this._directory_instance;
+        this._directory_instance = this._app.get('servers').get('directory');
+        return this._directory_instance;
     }
 }
 

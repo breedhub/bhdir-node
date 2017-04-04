@@ -186,6 +186,28 @@ class Directory extends EventEmitter {
                     updateConf = true;
                 }
 
+                this.socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '0', 8);
+                this.socketUser = bhdirConfig.socket && bhdirConfig.socket.user;
+                this.socketGroup = bhdirConfig.socket && bhdirConfig.socket.group;
+                if (!this.socketMode || isNaN(this.socketMode)) {
+                    if (!bhdirConfig.socket)
+                        bhdirConfig.socket = {};
+                    bhdirConfig.socket.mode = '660';
+                    updateConf = true;
+                }
+                if (!this.socketUser) {
+                    if (!bhdirConfig.socket)
+                        bhdirConfig.socket = {};
+                    bhdirConfig.socket.user = 'root';
+                    updateConf = true;
+                }
+                if (!this.socketGroup) {
+                    if (!bhdirConfig.socket)
+                        bhdirConfig.socket = {};
+                    bhdirConfig.socket.group = 'bhdir';
+                    updateConf = true;
+                }
+
                 if (updateConf) {
                     fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
                     return this._app.info('Settings updated - restarting\n')
@@ -243,6 +265,31 @@ class Directory extends EventEmitter {
                     },
                     Promise.resolve()
                 )
+            })
+            .then(() => {
+                return Promise.all([
+                    this._runner.exec('grep', [ '-E', `^${this.socketUser}:`, '/etc/passwd' ]),
+                    this._runner.exec('grep', [ '-E', `^${this.socketGroup}:`, '/etc/group' ]),
+                ]);
+            })
+            .then(([ userInfo, groupInfo ]) => {
+                let userDb = userInfo.stdout.trim().split(':');
+                if (userInfo.code !== 0 || userDb.length !== 7) {
+                    this._logger.error(`Socket user ${this.socketUser} not found`);
+                    this.socketUser = null;
+                    this.socketUid = null;
+                } else {
+                    this.socketUid = parseInt(userDb[2]);
+                }
+
+                let groupDb = groupInfo.stdout.trim().split(':');
+                if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                    this._logger.error(`Socket group ${this.socketGroup} not found`);
+                    this.socketGroup = null;
+                    this.socketGid = null;
+                } else {
+                    this.socketGid = parseInt(groupDb[2]);
+                }
             })
             .then(() => {
                 return Array.from(this.directories.keys()).reduce(
