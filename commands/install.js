@@ -55,14 +55,9 @@ class Install {
                 short: 'h',
                 type: 'boolean',
             })
-            .option({
-                name: 'socket',
-                short: 'z',
-                type: 'string',
-            })
             .run(argv);
 
-        return this.install(args.options['socket'])
+        return this.install()
             .then(() => {
                 process.exit(0);
             })
@@ -73,10 +68,9 @@ class Install {
 
     /**
      * Install bhdir
-     * @param {string} [sockName]
      * @return {Promise}
      */
-    install(sockName) {
+    install() {
         return Promise.resolve()
             .then(() => {
                 let configDir;

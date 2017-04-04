@@ -3,6 +3,7 @@
  * @module commands/status
  */
 const path = require('path');
+const argvParser = require('argv');
 
 /**
  * Command class
@@ -42,6 +43,14 @@ class Status {
      * @return {Promise}
      */
     run(argv) {
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .run(argv);
+
         return this._start.exec('status', [ '/var/run/bhdir/daemon.pid' ])
             .then(result => {
                 process.exit(result.code === 0 ? 0 : 1);

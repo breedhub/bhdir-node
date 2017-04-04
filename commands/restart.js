@@ -58,11 +58,6 @@ class Restart {
                 short: 'i',
                 type: 'boolean',
             })
-            .option({
-                name: 'socket',
-                short: 'z',
-                type: 'string',
-            })
             .run(argv);
 
         let onSignal = this._app.onSignal;
@@ -74,7 +69,7 @@ class Restart {
         return this._stop.terminate()
             .then(() => {
                 if (args.options['install'])
-                    return this._install.install(args.options['socket']);
+                    return this._install.install();
             })
             .then(() => {
                 return this._start.launch();

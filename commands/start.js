@@ -55,17 +55,12 @@ class Start {
                 short: 'i',
                 type: 'boolean',
             })
-            .option({
-                name: 'socket',
-                short: 'z',
-                type: 'string',
-            })
             .run(argv);
 
         return Promise.resolve()
             .then(() => {
                 if (args.options['install'])
-                    return this._install.install(args.options['socket']);
+                    return this._install.install();
             })
             .then(() => {
                 return this.launch()

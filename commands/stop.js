@@ -3,6 +3,7 @@
  * @module commands/stop
  */
 const path = require('path');
+const argvParser = require('argv');
 
 /**
  * Command class
@@ -44,6 +45,14 @@ class Stop {
      * @return {Promise}
      */
     run(argv) {
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .run(argv);
+
         return this.terminate()
             .then(() => {
                 process.exit(0);

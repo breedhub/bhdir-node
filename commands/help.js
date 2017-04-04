@@ -42,7 +42,14 @@ class Help {
      * @return {Promise}
      */
     run(argv) {
-        let args = argvParser.run(argv);
+        let args = argvParser
+            .option({
+                name: 'help',
+                short: 'h',
+                type: 'boolean',
+            })
+            .run(argv);
+
         if (args.targets.length < 2)
             return this.usage();
 
