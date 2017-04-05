@@ -65,14 +65,8 @@ class Start {
             .then(() => {
                 return this.launch()
             })
-            .then(result => {
-                if (result.code !== 0) {
-                    console.log(result.stdout);
-                    console.error(result.stderr);
-                    process.exit(1);
-                }
-
-                process.exit(0);
+            .then(rc => {
+                process.exit(rc);
             })
             .catch(error => {
                 return this.error(error.message);
@@ -85,7 +79,18 @@ class Start {
     launch() {
         return this.exec('daemon')
             .then(result => {
-                process.exit(result.code === 0 ? 0 : 1);
+                return Promise.resolve()
+                    .then(() => {
+                        if (result.code !== 0)
+                            return this._app.info(result.stdout);
+                    })
+                    .then(() => {
+                        if (result.code !== 0)
+                            return this._app.error(result.stderr);
+                    })
+                    .then(() => {
+                        return result.code;
+                    });
             });
     }
     /**

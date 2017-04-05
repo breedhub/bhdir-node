@@ -80,10 +80,10 @@ class Stop {
                                     return resolve();
 
                                 if (result.code !== 0)
-                                    process.exit(1);
+                                    return reject(new Error('Could not get daemon status'));
 
                                 if (++tries > 60)
-                                    return this.error('Daemon would not exit');
+                                    return reject(new Error('Daemon would not exit'));
 
                                 setTimeout(() => { waitExit(); }, 500);
                             })

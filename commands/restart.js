@@ -74,8 +74,8 @@ class Restart {
             .then(() => {
                 return this._start.launch();
             })
-            .then(() => {
-                process.exit(0);
+            .then(rc => {
+                process.exit(rc);
             })
             .catch(error => {
                 return this.error(error.message);

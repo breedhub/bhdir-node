@@ -53,7 +53,7 @@ class Status {
 
         return this._start.exec('status', [ '/var/run/bhdir/daemon.pid' ])
             .then(result => {
-                process.exit(result.code === 0 ? 0 : 1);
+                process.exit(result.code);
             })
             .catch(error => {
                 return this.error(error.message);
