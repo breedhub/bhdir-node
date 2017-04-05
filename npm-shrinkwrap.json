@@ -1,6 +1,6 @@
 {
   "name": "bhdir-dev",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "dependencies": {
     "abbrev": {
       "version": "1.1.0",
@@ -33,7 +33,7 @@
       "resolved": "https://registry.npmjs.org/argv/-/argv-0.0.2.tgz"
     },
     "arpen": {
-      "version": "0.0.15",
+      "version": "0.0.16",
       "dependencies": {
         "abbrev": {
           "version": "1.1.0",
