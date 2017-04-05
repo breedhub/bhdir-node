@@ -224,7 +224,7 @@ class Directory extends EventEmitter {
                     fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
                     return this._app.info('Settings updated - restarting\n')
                         .then(() => {
-                            process.exit(200);
+                            process.exit(255);
                         });
                 }
 

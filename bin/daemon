@@ -111,12 +111,12 @@ function restart() {
                 }
             }
 
-            if (result.code === 255 || !config.email.crush.enable)
+            if (result.code === 255 || !config.email.crash.enable)
                 return setTimeout(() => { restart(); }, restartPause);
 
             return emailer.send({
                     from: config.email.from,
-                    to: config.email.crush.to,
+                    to: config.email.crash.to,
                     subject: `Exit code ${result.code} of ${daemonName}`,
                     text: stripAnsi(buffer),
                 })
@@ -138,12 +138,12 @@ function restart() {
                 }
             }
 
-            if (!config.email.crush.enable)
+            if (!config.email.crash.enable)
                 exit(1);
 
             return emailer.send({
                     from: config.email.from,
-                    to: config.email.crush.to,
+                    to: config.email.crash.to,
                     subject: `Failed to start ${daemonName}`,
                     text: error.message,
                 })
