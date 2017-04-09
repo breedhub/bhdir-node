@@ -1,5 +1,5 @@
 /**
- * Resilio log resilio
+ * Resilio log watcher
  * @module servers/resilio
  */
 const path = require('path');

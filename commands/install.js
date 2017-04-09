@@ -20,11 +20,13 @@ class Install {
      * @param {App} app                 The application
      * @param {object} config           Configuration
      * @param {Runner} runner           Runner service
+     * @param {Syncthing} syncthing     syncthing server
      */
-    constructor(app, config, runner) {
+    constructor(app, config, runner, syncthing) {
         this._app = app;
         this._config = config;
         this._runner = runner;
+        this._syncthing = syncthing;
     }
 
     /**
@@ -40,7 +42,7 @@ class Install {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'runner' ];
+        return [ 'app', 'config', 'runner', 'servers.syncthing' ];
     }
 
     /**
@@ -71,8 +73,11 @@ class Install {
      * @return {Promise}
      */
     install() {
-        return Promise.resolve()
-            .then(() => {
+        return this._syncthing.constructor.getMainBinary()
+            .then(syncthing => {
+                if (!syncthing)
+                    throw new Error('Unsupported platform');
+
                 let configDir;
                 if (os.platform() === 'freebsd') {
                     configDir = '/usr/local/etc/bhdir';
@@ -147,6 +152,31 @@ class Install {
                     fs.writeFileSync('/etc/init.d/bhdir', service, {mode: 0o755});
                 } catch (error) {
                     // do nothing
+                }
+
+                try {
+                    fs.accessSync('/var/lib/bhdir/.syncthing', fs.constants.F_OK);
+                } catch (error) {
+                    return this._runner.exec(
+                            syncthing,
+                            [
+                                '-generate=/var/lib/bhdir/.syncthing',
+                            ],
+                            {
+                                env: {
+                                    "LANGUAGE": "C.UTF-8",
+                                    "LANG": "C.UTF-8",
+                                    "LC_ALL": "C.UTF-8",
+                                    "PATH": "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin",
+                                    "STNODEFAULTFOLDER": "1",
+                                    "HOME": '/var/lib/bhdir/.syncthing',
+                                }
+                            }
+                        )
+                        .then(result => {
+                            if (result.code !== 0)
+                                throw new Error('Could not init Syncthing');
+                        });
                 }
             });
     }

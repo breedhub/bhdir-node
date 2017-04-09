@@ -38,11 +38,11 @@ module.exports = {
 
     // Servers
     servers: {
-        daemon: {
-            class: 'servers.daemon',
-        },
         directory: {
             class: 'servers.directory',
+        },
+        daemon: {
+            class: 'servers.daemon',
         },
         state: {
             class: 'servers.state',
@@ -52,6 +52,9 @@ module.exports = {
         },
         resilio: {
             class: 'servers.resilio',
+        },
+        syncthing: {
+            class: 'servers.syncthing',
         },
     },
 
@@ -100,6 +103,13 @@ module.exports = {
             level: (userConfig.daemon && userConfig.daemon.log_level) || 'info',
             default: true,
             name: 'bhdir.log',
+            path: '/var/log/bhdir',
+            interval: '1d',
+            mode: 0o640,
+        },
+        syncthing: {
+            level: 'info',
+            name: 'syncthing.log',
             path: '/var/log/bhdir',
             interval: '1d',
             mode: 0o640,
