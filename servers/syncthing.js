@@ -172,7 +172,7 @@ class Syncthing extends EventEmitter {
                 let logger = this._app.get('logger');
                 logger.setLogStream('syncthing');
 
-                sub.cmd.on('data', data => { logger.info(data.toString().trim()); });
+                sub.cmd.on('data', data => { logger.dump(data.toString().trim()); });
                 sub.promise
                     .then(
                         result => {
