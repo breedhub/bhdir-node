@@ -60,6 +60,54 @@ class Syncthing extends EventEmitter {
     }
 
     /**
+     * Main address
+     * @type {string}
+     */
+    static get mainAddress() {
+        return '0.0.0.0';
+    }
+
+    /**
+     * Main port
+     * @type {string}
+     */
+    static get mainPort() {
+        return '42000';
+    }
+
+    /**
+     * API address
+     * @type {string}
+     */
+    static get apiAddress() {
+        return '127.0.0.1';
+    }
+
+    /**
+     * API port
+     * @type {string}
+     */
+    static get apiPort() {
+        return '42001';
+    }
+
+    /**
+     * Announce port
+     * @type {string}
+     */
+    static get announcePort() {
+        return '42002';
+    }
+
+    /**
+     * Announce port
+     * @type {string}
+     */
+    static get announceMCAddress() {
+        return '[ff12::8384]:42002';
+    }
+
+    /**
      * Get main bin path
      * @return {Promise}
      */
@@ -150,7 +198,6 @@ class Syncthing extends EventEmitter {
                     [
                         '-home=/var/lib/bhdir/.syncthing',
                         '-no-restart',
-                        '-paused',
                     ],
                     {
                         env: {
@@ -158,9 +205,9 @@ class Syncthing extends EventEmitter {
                             "LANG": "C.UTF-8",
                             "LC_ALL": "C.UTF-8",
                             "PATH": "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin",
+                            "HOME": '/var/lib/bhdir/.syncthing',
                             "STNODEFAULTFOLDER": "1",
                             "STNOUPGRADE": "1",
-                            "HOME": '/var/lib/bhdir/.syncthing',
                         }
                     }
                 );

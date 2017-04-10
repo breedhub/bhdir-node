@@ -9,6 +9,7 @@ const net = require('net');
 const ini = require('ini');
 const uuid = require('uuid');
 const argvParser = require('argv');
+const convert = require('xml-js');
 const SocketWrapper = require('socket-wrapper');
 
 /**
@@ -20,12 +21,14 @@ class Install {
      * @param {App} app                 The application
      * @param {object} config           Configuration
      * @param {Runner} runner           Runner service
+     * @param {Util} util               Util service
      * @param {Syncthing} syncthing     syncthing server
      */
-    constructor(app, config, runner, syncthing) {
+    constructor(app, config, runner, util, syncthing) {
         this._app = app;
         this._config = config;
         this._runner = runner;
+        this._util = util;
         this._syncthing = syncthing;
     }
 
@@ -42,7 +45,7 @@ class Install {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'runner', 'servers.syncthing' ];
+        return [ 'app', 'config', 'runner', 'util', 'servers.syncthing' ];
     }
 
     /**
@@ -168,14 +171,71 @@ class Install {
                                     "LANG": "C.UTF-8",
                                     "LC_ALL": "C.UTF-8",
                                     "PATH": "/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin",
-                                    "STNODEFAULTFOLDER": "1",
                                     "HOME": '/var/lib/bhdir/.syncthing',
+                                    "STNODEFAULTFOLDER": "1",
                                 }
                             }
                         )
                         .then(result => {
                             if (result.code !== 0)
                                 throw new Error('Could not init Syncthing');
+
+                            let st = convert.xml2js(fs.readFileSync('/var/lib/bhdir/.syncthing/config.xml'), { compact: true });
+
+                            Object.assign(
+                                st.configuration.gui,
+                                {
+                                    address: {
+                                        _text: this._syncthing.constructor.apiAddress + ':' + this._syncthing.constructor.apiPort,
+                                    },
+                                    apikey: {
+                                        _text: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
+                                    },
+                                    user: {
+                                        _text: 'bhdir',
+                                    },
+                                    password: {
+                                        _text: this._util.encryptPassword(
+                                            this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false })
+                                        ),
+                                    },
+                                    theme: {
+                                        _text: 'default',
+                                    },
+                                }
+                            );
+
+                            Object.assign(
+                                st.configuration.options,
+                                {
+                                    listenAddress: {
+                                        _text: 'tcp://' + this._syncthing.constructor.mainAddress + ':' + this._syncthing.constructor.mainPort,
+                                    },
+                                    globalAnnounceEnabled: {
+                                        _text: 'false',
+                                    },
+                                    localAnnouncePort: {
+                                        _text: this._syncthing.constructor.announcePort,
+                                    },
+                                    localAnnounceMCAddr: {
+                                        _text: this._syncthing.constructor.announceMCAddress,
+                                    },
+                                    relaysEnabled: {
+                                        _text: 'false',
+                                    },
+                                    natEnabled: {
+                                        _text: 'false',
+                                    },
+                                    startBrowser: {
+                                        _text: 'false',
+                                    },
+                                    autoUpgradeIntervalH: {
+                                        _text: '0',
+                                    },
+                                }
+                            );
+
+                            fs.writeFileSync('/var/lib/bhdir/.syncthing/config.xml', convert.js2xml(st, { compact: true, spaces: 4 }));
                         });
                 }
             });
