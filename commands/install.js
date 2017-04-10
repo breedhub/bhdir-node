@@ -21,13 +21,15 @@ class Install {
      * @param {App} app                 The application
      * @param {object} config           Configuration
      * @param {Runner} runner           Runner service
+     * @param {Filer} filer             Filer service
      * @param {Util} util               Util service
      * @param {Syncthing} syncthing     syncthing server
      */
-    constructor(app, config, runner, util, syncthing) {
+    constructor(app, config, runner, filer, util, syncthing) {
         this._app = app;
         this._config = config;
         this._runner = runner;
+        this._filer = filer;
         this._util = util;
         this._syncthing = syncthing;
     }
@@ -45,7 +47,7 @@ class Install {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'runner', 'util', 'servers.syncthing' ];
+        return [ 'app', 'config', 'runner', 'filer', 'util', 'servers.syncthing' ];
     }
 
     /**
@@ -124,6 +126,15 @@ class Install {
                         fs.mkdirSync('/var/lib/bhdir', 0o755);
                     } catch (error) {
                         return this.error(`Could not create /var/lib/bhdir`);
+                    }
+                }
+                try {
+                    fs.accessSync('/var/lib/bhdir/.config', fs.constants.F_OK);
+                } catch (error) {
+                    try {
+                        fs.mkdirSync('/var/lib/bhdir/.config', 0o700);
+                    } catch (error) {
+                        return this.error(`Could not create /var/lib/bhdir/.config`);
                     }
                 }
 
@@ -236,6 +247,25 @@ class Install {
                             );
 
                             fs.writeFileSync('/var/lib/bhdir/.syncthing/config.xml', convert.js2xml(st, { compact: true, spaces: 4 }));
+
+                            return this._filer.lockUpdate(
+                                '/var/lib/bhdir/.config/node.json',
+                                contents => {
+                                    let json;
+                                    try {
+                                        json = JSON.parse(contents);
+                                    } catch (error) {
+                                        json = {};
+                                    }
+
+                                    json.device = {
+                                        id: st.configuration.device._attributes.id,
+                                        name: st.configuration.device._attributes.name,
+                                    };
+
+                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                }
+                            );
                         });
                 }
             });
