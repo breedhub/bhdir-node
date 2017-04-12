@@ -196,7 +196,7 @@ class Syncthing extends EventEmitter {
 
                 this.node.roles = [];
                 for (let device of this.home.devices) {
-                    if (device.name === this.node.name) {
+                    if (device.name === this.node.device.name) {
                         this.node.roles = device.roles;
                         break;
                     }
@@ -282,6 +282,8 @@ class Syncthing extends EventEmitter {
                         if (device.name === name) {
                             if (device.roles.indexOf(role) === -1)
                                 device.roles.push(role);
+                            if (name === this.node.device.name)
+                                this.node.roles = device.roles;
                             break;
                         }
                     }
@@ -314,6 +316,8 @@ class Syncthing extends EventEmitter {
                     for (let device of json.devices) {
                         if (device.name === name) {
                             device.roles = device.roles.filter(val => { return val !== role });
+                            if (name === this.node.device.name)
+                                this.node.roles = device.roles;
                             break;
                         }
                     }
