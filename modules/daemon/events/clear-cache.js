@@ -101,14 +101,14 @@ class ClearCache {
     }
 
     /**
-     * Retrieve watcher server
-     * @return {Watcher}
+     * Retrieve syncthing server
+     * @return {Syncthing}
      */
-    get watcher() {
-        if (this._watcher)
-            return this._watcher;
-        this._watcher = this._app.get('servers').get('watcher');
-        return this._watcher;
+    get syncthing() {
+        if (this._syncthing)
+            return this._syncthing;
+        this._syncthing = this._app.get('servers').get('syncthing');
+        return this._syncthing;
     }
 }
 

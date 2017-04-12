@@ -94,6 +94,12 @@ class Daemon {
         let download = this._app.get('modules.daemon.events.download');
         server.on('download', download.handle.bind(download));
 
+        let roleAdd = this._app.get('modules.daemon.events.roleAdd');
+        server.on('role-add', roleAdd.handle.bind(roleAdd));
+
+        let roleRemove = this._app.get('modules.daemon.events.roleRemove');
+        server.on('role-remove', roleRemove.handle.bind(roleRemove));
+
         let index = this._app.get('modules.daemon.events.index');
         server.on('index', index.handle.bind(index));
 

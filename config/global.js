@@ -56,6 +56,9 @@ module.exports = {
         syncthing: {
             class: 'servers.syncthing',
         },
+        coordinator: {
+            class: 'servers.coordinator',
+        },
     },
 
     // Redis servers

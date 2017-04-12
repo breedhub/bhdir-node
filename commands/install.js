@@ -128,15 +128,6 @@ class Install {
                         return this.error(`Could not create /var/lib/bhdir`);
                     }
                 }
-                try {
-                    fs.accessSync('/var/lib/bhdir/.config', fs.constants.F_OK);
-                } catch (error) {
-                    try {
-                        fs.mkdirSync('/var/lib/bhdir/.config', 0o700);
-                    } catch (error) {
-                        return this.error(`Could not create /var/lib/bhdir/.config`);
-                    }
-                }
 
                 try {
                     this._app.debug('Creating default config');
@@ -169,9 +160,23 @@ class Install {
                 }
 
                 try {
-                    fs.accessSync('/var/lib/bhdir/.syncthing', fs.constants.F_OK);
+                    fs.accessSync('/var/lib/bhdir/.config', fs.constants.F_OK);
+                    return;
                 } catch (error) {
-                    return this._runner.exec(
+                    // do nothing
+                }
+
+                try {
+                    fs.mkdirSync('/var/lib/bhdir/.config', 0o700);
+                } catch (error) {
+                    return this.error(`Could not create /var/lib/bhdir/.config`);
+                }
+
+                let deviceId, deviceName;
+
+                return this._filer.remove('/var/lib/bhdir/.syncthing')
+                    .then(() => {
+                        return this._runner.exec(
                             syncthing,
                             [
                                 '-generate=/var/lib/bhdir/.syncthing',
@@ -187,87 +192,122 @@ class Install {
                                 }
                             }
                         )
-                        .then(result => {
-                            if (result.code !== 0)
-                                throw new Error('Could not init Syncthing');
+                    })
+                    .then(result => {
+                        if (result.code !== 0)
+                            throw new Error('Could not init Syncthing');
 
-                            let st = convert.xml2js(fs.readFileSync('/var/lib/bhdir/.syncthing/config.xml'), { compact: true });
+                        return this._filer.lockUpdate(
+                            '/var/lib/bhdir/.syncthing/config.xml',
+                            contents => {
+                                let st = convert.xml2js(contents, {compact: true});
 
-                            Object.assign(
-                                st.configuration.gui,
-                                {
-                                    address: {
-                                        _text: this._syncthing.constructor.apiAddress + ':' + this._syncthing.constructor.apiPort,
-                                    },
-                                    apikey: {
-                                        _text: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
-                                    },
-                                    user: {
-                                        _text: 'bhdir',
-                                    },
-                                    password: {
-                                        _text: this._util.encryptPassword(
-                                            this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false })
-                                        ),
-                                    },
-                                    theme: {
-                                        _text: 'default',
-                                    },
-                                }
-                            );
-
-                            Object.assign(
-                                st.configuration.options,
-                                {
-                                    listenAddress: {
-                                        _text: 'tcp://' + this._syncthing.constructor.mainAddress + ':' + this._syncthing.constructor.mainPort,
-                                    },
-                                    globalAnnounceEnabled: {
-                                        _text: 'false',
-                                    },
-                                    localAnnouncePort: {
-                                        _text: this._syncthing.constructor.announcePort,
-                                    },
-                                    localAnnounceMCAddr: {
-                                        _text: this._syncthing.constructor.announceMCAddress,
-                                    },
-                                    relaysEnabled: {
-                                        _text: 'false',
-                                    },
-                                    natEnabled: {
-                                        _text: 'false',
-                                    },
-                                    startBrowser: {
-                                        _text: 'false',
-                                    },
-                                    autoUpgradeIntervalH: {
-                                        _text: '0',
-                                    },
-                                }
-                            );
-
-                            fs.writeFileSync('/var/lib/bhdir/.syncthing/config.xml', convert.js2xml(st, { compact: true, spaces: 4 }));
-
-                            return this._filer.lockUpdate(
-                                '/var/lib/bhdir/.config/node.json',
-                                contents => {
-                                    let json;
-                                    try {
-                                        json = JSON.parse(contents);
-                                    } catch (error) {
-                                        json = {};
+                                Object.assign(
+                                    st.configuration.gui,
+                                    {
+                                        address: {
+                                            _text: this._syncthing.constructor.apiAddress + ':' + this._syncthing.constructor.apiPort,
+                                        },
+                                        apikey: {
+                                            _text: this._util.getRandomString(32, {
+                                                lower: true,
+                                                upper: true,
+                                                digits: true,
+                                                special: false
+                                            }),
+                                        },
+                                        user: {
+                                            _text: 'bhdir',
+                                        },
+                                        password: {
+                                            _text: this._util.encryptPassword('bhdir'),
+                                        },
+                                        theme: {
+                                            _text: 'default',
+                                        },
                                     }
+                                );
 
-                                    json.device = {
-                                        id: st.configuration.device._attributes.id,
-                                        name: st.configuration.device._attributes.name,
-                                    };
+                                Object.assign(
+                                    st.configuration.options,
+                                    {
+                                        listenAddress: {
+                                            _text: 'tcp://' + this._syncthing.constructor.mainAddress + ':' + this._syncthing.constructor.mainPort,
+                                        },
+                                        globalAnnounceEnabled: {
+                                            _text: 'false',
+                                        },
+                                        localAnnouncePort: {
+                                            _text: this._syncthing.constructor.announcePort,
+                                        },
+                                        localAnnounceMCAddr: {
+                                            _text: this._syncthing.constructor.announceMCAddress,
+                                        },
+                                        relaysEnabled: {
+                                            _text: 'false',
+                                        },
+                                        natEnabled: {
+                                            _text: 'false',
+                                        },
+                                        startBrowser: {
+                                            _text: 'false',
+                                        },
+                                        autoUpgradeIntervalH: {
+                                            _text: '0',
+                                        },
+                                    }
+                                );
 
-                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                deviceId = st.configuration.device._attributes.id;
+                                deviceName = st.configuration.device._attributes.name;
+                                return Promise.resolve(convert.js2xml(st, {compact: true, spaces: 4}));
+                            }
+                        );
+                    })
+                    .then(() => {
+                        return this._filer.lockUpdate(
+                            '/var/lib/bhdir/.config/node.json',
+                            contents => {
+                                let json;
+                                try {
+                                    json = JSON.parse(contents);
+                                } catch (error) {
+                                    json = {};
                                 }
-                            );
-                        });
-                }
+
+                                json.device = {
+                                    id: deviceId,
+                                    name: deviceName,
+                                };
+
+                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                            }
+                        );
+                    })
+                    .then(() => {
+                        return this._filer.lockUpdate(
+                            '/var/lib/bhdir/.config/home.json',
+                            contents => {
+                                let json;
+                                try {
+                                    json = JSON.parse(contents);
+                                } catch (error) {
+                                    json = {};
+                                }
+
+                                json.name = 'bhdir';
+                                json.devices = [
+                                    {
+                                        id: deviceId,
+                                        name: deviceName,
+                                        roles: [],
+                                    }
+                                ];
+
+                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                            }
+                        );
+                    });
             });
     }
 

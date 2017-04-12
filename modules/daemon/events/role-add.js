@@ -1,14 +1,14 @@
 /**
- * Index event
- * @module daemon/events/index
+ * Role Add event
+ * @module daemon/events/role-add
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Index event class
+ * Role Add event class
  */
-class Index {
+class RoleAdd {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +22,11 @@ class Index {
     }
 
     /**
-     * Service name is 'modules.daemon.events.index'
+     * Service name is 'modules.daemon.events.roleAdd'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.index';
+        return 'modules.daemon.events.roleAdd';
     }
 
     /**
@@ -47,28 +47,43 @@ class Index {
         if (!client)
             return;
 
-        this._logger.debug('index', `Got INDEX command`);
+        this._logger.debug('role-add', `Got ROLE ADD command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (success)
-                reply.results = value;
-            else
+            if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('index', `Sending INDEX response`);
+            this._logger.debug('role-add', `Sending ROLE ADD response`);
             this.daemon.send(id, data);
         };
 
-        this.index.build()
-            .then(messages => {
-                reply(true, messages);
+        if (message.args.length !== 2)
+            return reply(false, 'Invalid arguments list');
+
+        let name = message.args[0];
+        let roles = new Set(message.args[1]);
+        for (let role of roles) {
+            if (this.syncthing.constructor.roles.indexOf(role) === -1)
+                return reply(false, 'Invalid role');
+        }
+
+        Array.from(roles).reduce(
+                (prev, cur) => {
+                    return prev.then(() => {
+                        return this.syncthing.addRole(name, cur);
+                    });
+                },
+                Promise.resolve()
+            )
+            .then(() => {
+                reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Index.handle()'));
+                this._logger.error(new WError(error, 'RoleAdd.handle()'));
             });
     }
 
@@ -104,17 +119,6 @@ class Index {
         this._syncthing = this._app.get('servers').get('syncthing');
         return this._syncthing;
     }
-
-    /**
-     * Retrieve index server
-     * @return {Index}
-     */
-    get index() {
-        if (this._index)
-            return this._index;
-        this._index = this._app.get('servers').get('index');
-        return this._index;
-    }
 }
 
-module.exports = Index;
+module.exports = RoleAdd;

@@ -285,6 +285,12 @@ class Daemon extends EventEmitter {
                 case 'download':
                     this.emit('download', id, message);
                     break;
+                case 'role-add':
+                    this.emit('role-add', id, message);
+                    break;
+                case 'role-remove':
+                    this.emit('role-remove', id, message);
+                    break;
                 case 'index':
                     this.emit('index', id, message);
                     break;

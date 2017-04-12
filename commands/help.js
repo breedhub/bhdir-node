@@ -69,7 +69,8 @@ class Help {
                 'Usage:\tbhdirctl <command> [<parameters]\n\n' +
                 'Commands:\n' +
                 '\thelp\t\tPrint help about any other command\n' +
-                '\tinstall\t\tRegister the program in the system\n' +
+                '\tinstall\t\tInitialize the installation\n' +
+                '\trole\t\tManage node roles\n' +
                 '\tls\t\tList variables of a path\n' +
                 '\tset\t\tSet variable value\n' +
                 '\tget\t\tGet variable value\n' +
@@ -119,6 +120,21 @@ class Help {
                 'Usage:\tbhdirctl install\n\n' +
                 '\tThis command will register the program in the system\n' +
                 '\tand will create configuration in /etc/bhid by default'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Role command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpRole(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl role [add|remove] <role-name> [... <role-name>] [-n <node>]\n\n' +
+                '\tManage node roles. Current node is assumed if no name provided.'
             )
             .then(() => {
                 process.exit(0);

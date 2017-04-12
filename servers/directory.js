@@ -406,7 +406,24 @@ class Directory extends EventEmitter {
     }
 
     /**
-     * Set variable
+     * Validate path node name
+     * @param {string} filename                     Variable path
+     * @param {boolean} [allowRoot=false]           Allow root as variable
+     * @return {boolean}
+     */
+    validateName(name) {
+        if (typeof name !== 'string')
+            return false;
+
+        return (
+            name.length &&
+            name[0] !== '.' &&
+            /^[-_.a-zA-Z0-9]+$/.test(name)
+        );
+    }
+
+    /**
+     * Validate variable path
      * @param {string} filename                     Variable path
      * @param {boolean} [allowRoot=false]           Allow root as variable
      * @return {boolean}
@@ -429,6 +446,9 @@ class Directory extends EventEmitter {
             name = parts.join(':');
         }
 
+        if (!dir.length || !this.validateName(dir) || !name.length || name[0] !== '/')
+            return false;
+
         let info = this.directories.get(dir);
         if (!info || !info.enabled)
             return false;
@@ -436,12 +456,12 @@ class Directory extends EventEmitter {
         if (allowRoot && name === '/')
             return true;
 
-        return (
-            name.length &&
-            name[0] === '/' &&
-            name[name.length - 1] !== '/' &&
-            name.indexOf('/.') === -1
-        );
+        for (let sub of name.split('/').slice(1)) {
+            if (!this.validateName(sub))
+                return false;
+        }
+
+        return true;
     }
 
     /**

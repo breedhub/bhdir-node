@@ -25,6 +25,8 @@ class Syncthing extends EventEmitter {
         super();
 
         this.syncthing = null;
+        this.node = null;
+        this.home = null;
 
         this._name = null;
         this._app = app;
@@ -108,6 +110,13 @@ class Syncthing extends EventEmitter {
     }
 
     /**
+     * Roles
+     */
+    static get roles() {
+        return [ 'coordinator', 'relay' ];
+    }
+
+    /**
      * Get main bin path
      * @return {Promise}
      */
@@ -176,6 +185,24 @@ class Syncthing extends EventEmitter {
             Promise.resolve()
             )
             .then(() => {
+                return Promise.all([
+                    this._filer.lockRead('/var/lib/bhdir/.config/node.json'),
+                    this._filer.lockRead('/var/lib/bhdir/.config/home.json'),
+                ]);
+            })
+            .then(([ nodeContents, homeContents ]) => {
+                this.node = JSON.parse(nodeContents);
+                this.home = JSON.parse(homeContents);
+
+                this.node.roles = [];
+                for (let device of this.home.devices) {
+                    if (device.name === this.node.name) {
+                        this.node.roles = device.roles;
+                        break;
+                    }
+                }
+            })
+            .then(() => {
                 this._logger.debug('syncthing', 'Starting the server');
                 return this.startMainBinary();
             });
@@ -232,6 +259,82 @@ class Syncthing extends EventEmitter {
                         }
                     );
             });
+    }
+
+    /**
+     * Add role
+     * @param {string} name                     Name of the node
+     * @param {string} role                     Name of the role
+     * @return {Promise}
+     */
+    addRole(name, role) {
+        if (!this.node)
+            return Promise.resolve();
+
+        if (!name)
+            name = this.node.device.name;
+
+        return this._filer.lockUpdate(
+                '/var/lib/bhdir/.config/home.json',
+                contents => {
+                    let json = JSON.parse(contents);
+                    for (let device of json.devices) {
+                        if (device.name === name) {
+                            if (device.roles.indexOf(role) === -1)
+                                device.roles.push(role);
+                            break;
+                        }
+                    }
+                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                }
+            )
+            .then(() => {
+                if (name === this.node.device.name && role === 'coordinator')
+                    return this._coordinator.startListening();
+            });
+    }
+
+    /**
+     * Remove role
+     * @param {string} name                     Name of the node
+     * @param {string} role                     Name of the role
+     * @return {Promise}
+     */
+    removeRole(name, role) {
+        if (!this.node)
+            return Promise.resolve();
+
+        if (!name)
+            name = this.node.device.name;
+
+        return this._filer.lockUpdate(
+                '/var/lib/bhdir/.config/home.json',
+                contents => {
+                    let json = JSON.parse(contents);
+                    for (let device of json.devices) {
+                        if (device.name === name) {
+                            device.roles = device.roles.filter(val => { return val !== role });
+                            break;
+                        }
+                    }
+                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                }
+            )
+            .then(() => {
+                if (name === this.node.device.name && role === 'coordinator')
+                    return this._coordinator.stopListening();
+            });
+    }
+
+    /**
+     * Retrieve coordinator server
+     * @return {Coordinator}
+     */
+    get _coordinator() {
+        if (this._coordinator_instance)
+            return this._coordinator_instance;
+        this._coordinator_instance = this._app.get('servers').get('coordinator');
+        return this._coordinator_instance;
     }
 }
 
