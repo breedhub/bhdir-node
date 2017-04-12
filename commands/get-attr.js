@@ -82,7 +82,7 @@ class GetAttr {
         let getName = args.options['attr'] || null;
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'get-attr',
             args: [
                 getPath,

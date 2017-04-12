@@ -65,7 +65,7 @@ class Del {
         let delPath = args.targets[1];
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'del',
             args: [
                 delPath,

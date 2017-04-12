@@ -195,7 +195,7 @@ class Daemon extends EventEmitter {
      * @param {object} socket           Client socket
      */
     onConnection(socket) {
-        let id = uuid.v1();
+        let id = uuid.v4();
         this._logger.debug('daemon', `New socket`);
 
         let client = {
@@ -284,6 +284,9 @@ class Daemon extends EventEmitter {
                     break;
                 case 'download':
                     this.emit('download', id, message);
+                    break;
+                case 'network-create':
+                    this.emit('network-create', id, message);
                     break;
                 case 'role-add':
                     this.emit('role-add', id, message);

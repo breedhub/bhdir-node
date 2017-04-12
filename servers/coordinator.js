@@ -102,7 +102,7 @@ class Coordinator extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('coordinator', 'Starting the server');
-                if (this._syncthing.node.roles.indexOf('coordinator') === -1)
+                if (this._syncthing.roles.indexOf('coordinator') === -1)
                     return;
 
                 return this.startListening();
@@ -185,7 +185,7 @@ class Coordinator extends EventEmitter {
      * @param {object} socket           Client socket
      */
     onConnection(socket) {
-        let id = uuid.v1();
+        let id = uuid.v4();
         this._logger.debug('coordinator', `New socket`);
 
         let client = {

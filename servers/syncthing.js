@@ -26,7 +26,7 @@ class Syncthing extends EventEmitter {
 
         this.syncthing = null;
         this.node = null;
-        this.home = null;
+        this.roles = [];
 
         this._name = null;
         this._app = app;
@@ -171,36 +171,42 @@ class Syncthing extends EventEmitter {
             return Promise.reject(new Error(`Server ${name} was not properly initialized`));
 
         return Array.from(this._app.get('modules')).reduce(
-            (prev, [curName, curModule]) => {
-                return prev.then(() => {
-                    if (!curModule.register)
-                        return;
+                (prev, [curName, curModule]) => {
+                    return prev.then(() => {
+                        if (!curModule.register)
+                            return;
 
-                    let result = curModule.register(name);
-                    if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
-                        throw new Error(`Module '${curName}' register() did not return a Promise`);
-                    return result;
-                });
-            },
-            Promise.resolve()
+                        let result = curModule.register(name);
+                        if (result === null || typeof result !== 'object' || typeof result.then !== 'function')
+                            throw new Error(`Module '${curName}' register() did not return a Promise`);
+                        return result;
+                    });
+                },
+                Promise.resolve()
             )
             .then(() => {
-                return Promise.all([
-                    this._filer.lockRead('/var/lib/bhdir/.config/node.json'),
-                    this._filer.lockRead('/var/lib/bhdir/.config/home.json'),
-                ]);
-            })
-            .then(([ nodeContents, homeContents ]) => {
-                this.node = JSON.parse(nodeContents);
-                this.home = JSON.parse(homeContents);
-
-                this.node.roles = [];
-                for (let device of this.home.devices) {
-                    if (device.name === this.node.device.name) {
-                        this.node.roles = device.roles;
-                        break;
-                    }
+                try {
+                    fs.accessSync('/var/lib/bhdir/.config/node.json', fs.constants.F_OK);
+                } catch (error) {
+                    return;
                 }
+
+                return this._filer.lockRead('/var/lib/bhdir/.config/node.json')
+                    .then(contents => {
+                        this.node = JSON.parse(contents);
+                        if (!this.node.device || !this.node.device.id || !this.node.device.name) {
+                            this.node = null;
+                            return;
+                        }
+
+                        return this._directory.get(`.core:/home/nodes/${this.node.device.id}/roles`)
+                            .then(roles => {
+                                if (!roles || !roles.value)
+                                    return;
+
+                                this.roles = roles.value;
+                            });
+                    });
             })
             .then(() => {
                 this._logger.debug('syncthing', 'Starting the server');
@@ -212,7 +218,7 @@ class Syncthing extends EventEmitter {
      * Start main binary
      */
     startMainBinary() {
-        if (this.syncthing)
+        if (this.syncthing || !this.node)
             return Promise.resolve();
 
         return this.constructor.getMainBinary()
@@ -262,8 +268,53 @@ class Syncthing extends EventEmitter {
     }
 
     /**
+     * Create network
+     * @param {string} name                     Name of the network
+     * @return {Promise}
+     */
+    createNetwork(name) {
+        return new Promise((resolve, reject) => {
+                if (!this.node)
+                    return reject(new Error('bhdir not installed'));
+
+                try {
+                    fs.accessSync('/var/lib/bhdir/.core/data/home/.vars.json', fs.constants.F_OK);
+                    reject(new Error('We are already part of a network'));
+                } catch (error) {
+                    resolve();
+                }
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/created',
+                    null,
+                    Math.round(Date.now() / 1000)
+                );
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/name',
+                    null,
+                    name
+                );
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/nodes/index',
+                    null,
+                    {
+                        [this.node.device.name]: this.node.device.id,
+                    }
+                );
+            })
+            .then(() => {
+                return this.addRole(null, 'coordinator');
+            })
+    }
+
+    /**
      * Add role
-     * @param {string} name                     Name of the node
+     * @param {string|null} name                Name of the node
      * @param {string} role                     Name of the role
      * @return {Promise}
      */
@@ -274,25 +325,27 @@ class Syncthing extends EventEmitter {
         if (!name)
             name = this.node.device.name;
 
-        return this._filer.lockUpdate(
-                '/var/lib/bhdir/.config/home.json',
-                contents => {
-                    let json = JSON.parse(contents);
-                    for (let device of json.devices) {
-                        if (device.name === name) {
-                            if (device.roles.indexOf(role) === -1)
-                                device.roles.push(role);
-                            if (name === this.node.device.name)
-                                this.node.roles = device.roles;
-                            break;
-                        }
-                    }
-                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                }
-            )
-            .then(() => {
-                if (name === this.node.device.name && role === 'coordinator')
-                    return this._coordinator.startListening();
+        return this._directory.get('.core:/home/nodes/index')
+            .then(names => {
+                if (!names || !names.value)
+                    return;
+
+                let id = names.value[name];
+                return this._directory.get(`.core:/home/nodes/${id}/roles`)
+                    .then(variable => {
+                        let roles = [];
+                        if (variable && variable.value)
+                            roles = variable.value;
+
+                        if (roles.indexOf(role) === -1)
+                            roles.push(role);
+
+                        return this._directory.set(`.core:/home/nodes/${id}/roles`, null, roles);
+                    })
+                    .then(() => {
+                        if (name === this.node.device.name && role === 'coordinator')
+                            return this._coordinator.startListening();
+                    });
             });
     }
 
@@ -309,25 +362,38 @@ class Syncthing extends EventEmitter {
         if (!name)
             name = this.node.device.name;
 
-        return this._filer.lockUpdate(
-                '/var/lib/bhdir/.config/home.json',
-                contents => {
-                    let json = JSON.parse(contents);
-                    for (let device of json.devices) {
-                        if (device.name === name) {
-                            device.roles = device.roles.filter(val => { return val !== role });
-                            if (name === this.node.device.name)
-                                this.node.roles = device.roles;
-                            break;
-                        }
-                    }
-                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                }
-            )
-            .then(() => {
-                if (name === this.node.device.name && role === 'coordinator')
-                    return this._coordinator.stopListening();
+        return this._directory.get('.core:/home/nodes/index')
+            .then(names => {
+                if (!names || !names.value)
+                    return;
+
+                let id = names.value[name];
+                return this._directory.get(`.core:/home/nodes/${id}/roles`)
+                    .then(variable => {
+                        let roles = [];
+                        if (variable && variable.value)
+                            roles = variable.value;
+
+                        roles = roles.filter(value => { return value !== role; });
+
+                        return this._directory.set(`.core:/home/nodes/${id}/roles`, null, roles);
+                    })
+                    .then(() => {
+                        if (name === this.node.device.name && role === 'coordinator')
+                            return this._coordinator.stopListening();
+                    });
             });
+    }
+
+    /**
+     * Retrieve directory server
+     * @return {Coordinator}
+     */
+    get _directory() {
+        if (this._directory_instance)
+            return this._directory_instance;
+        this._directory_instance = this._app.get('servers').get('directory');
+        return this._directory_instance;
     }
 
     /**

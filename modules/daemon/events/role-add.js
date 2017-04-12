@@ -63,6 +63,9 @@ class RoleAdd {
         if (message.args.length !== 2)
             return reply(false, 'Invalid arguments list');
 
+        if (this._syncthing.roles.indexOf('coordinator') === -1)
+            return reply(false, 'We are not a coordinator');
+
         let name = message.args[0];
         let roles = new Set(message.args[1]);
         for (let role of roles) {

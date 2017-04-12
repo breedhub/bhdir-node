@@ -95,7 +95,7 @@ class Set {
         }
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'set',
             args: [
                 setPath,

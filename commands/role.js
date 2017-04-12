@@ -78,7 +78,7 @@ class Role {
         let target = args.options['target'] || null;
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: `role-${sub}`,
             args: [
                 target,

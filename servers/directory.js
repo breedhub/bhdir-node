@@ -33,6 +33,17 @@ class Directory extends EventEmitter {
         this.directories = new Map();
         this.waiting = new Map();
 
+        let info = {
+            rootDir: '/var/lib/bhdir/.core',
+            dataDir: '/var/lib/bhdir/.core/data',
+            stateDir: '/var/lib/bhdir/.core/state',
+            dirMode: 0o770,
+            fileMode: 0o660,
+            user: 'root',
+            group: os.platform() === 'freebsd' ? 'wheel' : 'root',
+        };
+        this.directories.set('.core', info);
+
         this._name = null;
         this._app = app;
         this._config = config;
@@ -232,7 +243,7 @@ class Directory extends EventEmitter {
                     (prev, cur) => {
                         let info = this.directories.get(cur);
                         return prev.then(() => {
-                                if (!info.group)
+                                if (cur[0] === '.' || !info.group)
                                     return;
 
                                 if (os.platform() === 'freebsd')
@@ -241,7 +252,7 @@ class Directory extends EventEmitter {
                                 return this._runner.exec('groupadd', [info.group]);
                             })
                             .then(() => {
-                                if (!info.group || !this.syncUser)
+                                if (cur[0] === '.' || !info.group || !this.syncUser)
                                     return;
 
                                 if (os.platform() === 'freebsd')
@@ -408,16 +419,16 @@ class Directory extends EventEmitter {
     /**
      * Validate path node name
      * @param {string} filename                     Variable path
-     * @param {boolean} [allowRoot=false]           Allow root as variable
+     * @param {boolean} [allowHidden=false]         Allow hidden name as variable
      * @return {boolean}
      */
-    validateName(name) {
+    validateName(name, allowHidden = false) {
         if (typeof name !== 'string')
             return false;
 
         return (
             name.length &&
-            name[0] !== '.' &&
+            (allowHidden || name[0] !== '.') &&
             /^[-_.a-zA-Z0-9]+$/.test(name)
         );
     }
@@ -446,7 +457,7 @@ class Directory extends EventEmitter {
             name = parts.join(':');
         }
 
-        if (!dir.length || !this.validateName(dir) || !name.length || name[0] !== '/')
+        if (!dir.length || !this.validateName(dir, true) || !name.length || name[0] !== '/')
             return false;
 
         let info = this.directories.get(dir);
@@ -668,7 +679,7 @@ class Directory extends EventEmitter {
      * Set variable
      * @param {string} variable                     Variable name
      * @param {object} [attrs]                      Variable attributes
-     * @param {*} [value]                           Variable value if info is omitted
+     * @param {*} [value]                           Variable value if attrs is omitted
      * @return {Promise}                            Resolves to history id
      */
     set(variable, attrs, value) {

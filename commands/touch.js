@@ -65,7 +65,7 @@ class Touch {
         let touchPath = args.targets[1];
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'touch',
             args: [
                 touchPath,

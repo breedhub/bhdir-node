@@ -67,7 +67,7 @@ class Download {
         let downloadFile = args.targets[2];
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'download',
             args: [
                 downloadPath,

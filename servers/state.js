@@ -154,15 +154,19 @@ class State extends EventEmitter {
         this._logger.debug('state', `State directory event for ${directory}: ${eventType}, ${filename}`);
         let info = this.states.get(directory);
 
-        let files = fs.readdirSync(info.stateDir);
-        for (let file of files) {
-            let stats;
-            try {
-                stats = fs.statSync(path.join(info.stateDir, file));
-            } catch (error) {
-                continue;
+        try {
+            let files = fs.readdirSync(info.stateDir);
+            for (let file of files) {
+                let stats;
+                try {
+                    stats = fs.statSync(path.join(info.stateDir, file));
+                } catch (error) {
+                    continue;
+                }
+                info.files.set(file, stats.mtime);
             }
-            info.files.set(file, stats.mtime);
+        } catch (error) {
+            // do nothing
         }
     }
 
@@ -181,6 +185,7 @@ class State extends EventEmitter {
     onUpdateTimer() {
         let json = {
             id: this.sessionId,
+            deviceId: this._syncthing.node && this._syncthing.node.device.id,
             started: this.started,
             updated: Math.round(Date.now() / 1000),
         };
@@ -225,6 +230,17 @@ class State extends EventEmitter {
             return this._directory_instance;
         this._directory_instance = this._app.get('servers').get('directory');
         return this._directory_instance;
+    }
+
+    /**
+     * Retrieve syncthing server
+     * @return {Syncthing}
+     */
+    get _syncthing() {
+        if (this._syncthing_instance)
+            return this._syncthing_instance;
+        this._syncthing_instance = this._app.get('servers').get('syncthing');
+        return this._syncthing_instance;
     }
 }
 

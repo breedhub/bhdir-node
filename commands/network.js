@@ -1,6 +1,6 @@
 /**
- * Exists command
- * @module commands/exists
+ * Network command
+ * @module commands/role
  */
 const path = require('path');
 const net = require('net');
@@ -11,7 +11,7 @@ const SocketWrapper = require('socket-wrapper');
 /**
  * Command class
  */
-class Exists {
+class Network {
     /**
      * Create the service
      * @param {App} app                 The application
@@ -25,11 +25,11 @@ class Exists {
     }
 
     /**
-     * Service name is 'commands.exists'
+     * Service name is 'commands.network'
      * @type {string}
      */
     static get provides() {
-        return 'commands.exists';
+        return 'commands.network';
     }
 
     /**
@@ -60,16 +60,25 @@ class Exists {
             .run(argv);
 
         if (args.targets.length < 2)
-            return this._help.helpGet(argv);
+            return this._help.helpNetwork(argv);
 
-        let existsPath = args.targets[1];
+        let commandName, commandArgs = [];
+        let sub = args.targets[1];
+        switch (sub) {
+            case 'create':
+                if (args.targets.length < 3)
+                    return this._help.helpNetwork(argv);
+                commandName = 'network-create';
+                commandArgs.push(args.targets[2]);
+                break;
+            default:
+                return this._help.helpNetwork(argv);
+        }
 
         let request = {
             id: uuid.v4(),
-            command: 'exists',
-            args: [
-                existsPath,
-            ]
+            command: commandName,
+            args: commandArgs,
         };
 
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
@@ -81,13 +90,14 @@ class Exists {
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
-                return this._app.info(response.results[0])
-                    .then(() => {
-                        return response.results[0] === true ? 0 : 10;
+                return (response.results || []).reduce((prev, cur) => {
+                    return prev.then(() => {
+                        return this._app.info(cur);
                     });
+                }, Promise.resolve());
             })
-            .then(code => {
-                process.exit(code);
+            .then(() => {
+                process.exit(0);
             })
             .catch(error => {
                 return this.error(error.message);
@@ -146,4 +156,4 @@ class Exists {
     }
 }
 
-module.exports = Exists;
+module.exports = Network;

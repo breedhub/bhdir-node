@@ -65,7 +65,7 @@ class Get {
         let getPath = args.targets[1];
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'get',
             args: [
                 getPath,

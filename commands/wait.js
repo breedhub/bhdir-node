@@ -70,7 +70,7 @@ class Wait {
         let waitPath = args.targets[1];
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'wait',
             args: [
                 waitPath,

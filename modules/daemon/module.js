@@ -94,6 +94,9 @@ class Daemon {
         let download = this._app.get('modules.daemon.events.download');
         server.on('download', download.handle.bind(download));
 
+        let networkCreate = this._app.get('modules.daemon.events.networkCreate');
+        server.on('network-create', networkCreate.handle.bind(networkCreate));
+
         let roleAdd = this._app.get('modules.daemon.events.roleAdd');
         server.on('role-add', roleAdd.handle.bind(roleAdd));
 

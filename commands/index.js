@@ -60,7 +60,7 @@ class Index {
             .run(argv);
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'index',
             args: []
         };

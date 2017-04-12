@@ -283,30 +283,6 @@ class Install {
                                 return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                             }
                         );
-                    })
-                    .then(() => {
-                        return this._filer.lockUpdate(
-                            '/var/lib/bhdir/.config/home.json',
-                            contents => {
-                                let json;
-                                try {
-                                    json = JSON.parse(contents);
-                                } catch (error) {
-                                    json = {};
-                                }
-
-                                json.name = 'bhdir';
-                                json.devices = [
-                                    {
-                                        id: deviceId,
-                                        name: deviceName,
-                                        roles: [],
-                                    }
-                                ];
-
-                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                            }
-                        );
                     });
             });
     }

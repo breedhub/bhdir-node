@@ -76,7 +76,7 @@ class Upload {
             })
             .then(contents => {
                 let request = {
-                    id: uuid.v1(),
+                    id: uuid.v4(),
                     command: 'upload',
                     args: [
                         uploadPath,

@@ -66,7 +66,7 @@ class DelAttr {
         let delName = args.targets[2];
 
         let request = {
-            id: uuid.v1(),
+            id: uuid.v4(),
             command: 'del-attr',
             args: [
                 delPath,

@@ -1,14 +1,14 @@
 /**
- * Role Remove event
- * @module daemon/events/role-remove
+ * Network Create event
+ * @module daemon/events/network-create
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Role Remove event class
+ * Network Create event class
  */
-class RoleRemove {
+class NetworkCreate {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +22,11 @@ class RoleRemove {
     }
 
     /**
-     * Service name is 'modules.daemon.events.roleRemove'
+     * Service name is 'modules.daemon.events.networkCreate'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.roleRemove';
+        return 'modules.daemon.events.networkCreate';
     }
 
     /**
@@ -47,7 +47,7 @@ class RoleRemove {
         if (!client)
             return;
 
-        this._logger.debug('role-remove', `Got ROLE REMOVE command`);
+        this._logger.debug('network-create', `Got NETWORK CREATE command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -56,37 +56,22 @@ class RoleRemove {
             if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('role-remove', `Sending ROLE REMOVE response`);
+            this._logger.debug('network-create', `Sending NETWORK CREATE response`);
             this.daemon.send(id, data);
         };
 
-        if (message.args.length !== 2)
+        if (message.args.length !== 1)
             return reply(false, 'Invalid arguments list');
 
-        if (this._syncthing.roles.indexOf('coordinator') === -1)
-            return reply(false, 'We are not a coordinator');
-
         let name = message.args[0];
-        let roles = new Set(message.args[1]);
-        for (let role of roles) {
-            if (this.syncthing.constructor.roles.indexOf(role) === -1)
-                return reply(false, 'Invalid role');
-        }
 
-        Array.from(roles).reduce(
-                (prev, cur) => {
-                    return prev.then(() => {
-                        return this.syncthing.removeRole(name, cur);
-                    });
-                },
-                Promise.resolve()
-            )
+        this.syncthing.createNetwork(name)
             .then(() => {
                 reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'RoleRemove.handle()'));
+                this._logger.error(new WError(error, 'NetworkCreate.handle()'));
             });
     }
 
@@ -124,4 +109,4 @@ class RoleRemove {
     }
 }
 
-module.exports = RoleRemove;
+module.exports = NetworkCreate;

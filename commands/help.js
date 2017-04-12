@@ -70,6 +70,7 @@ class Help {
                 'Commands:\n' +
                 '\thelp\t\tPrint help about any other command\n' +
                 '\tinstall\t\tInitialize the installation\n' +
+                '\tnetwork\t\tManage networks\n' +
                 '\trole\t\tManage node roles\n' +
                 '\tls\t\tList variables of a path\n' +
                 '\tset\t\tSet variable value\n' +
@@ -120,6 +121,21 @@ class Help {
                 'Usage:\tbhdirctl install\n\n' +
                 '\tThis command will register the program in the system\n' +
                 '\tand will create configuration in /etc/bhid by default'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Network command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpNetwork(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl network create <name>\n\n' +
+                '\tManage networks. When creating current node is assigned coordinator and relay roles'
             )
             .then(() => {
                 process.exit(0);
