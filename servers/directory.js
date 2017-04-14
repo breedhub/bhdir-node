@@ -665,9 +665,7 @@ class Directory extends EventEmitter {
                 .then(json => {
                     let result = {};
                     for (let key of Object.keys(json)) {
-                        if (!json[key] || json[key]['value'] === null)
-                            continue;
-                        result[key] = json[key]['value'];
+                        result[key] = json[key] ? json[key]['value'] : null;
                     }
 
                     return result;
@@ -701,97 +699,119 @@ class Directory extends EventEmitter {
                 variable = `${repo}:${filename}`;
                 this._logger.debug('directory', `Setting ${variable}`);
 
-                let info = this.directories.get(repo);
-                let name = path.basename(filename);
-                let directory = path.join(info.dataDir, path.dirname(filename));
+                let parents = [];
+                let parts = filename.split('/');
+                for (let i = 2; i < parts.length; i++)
+                    parents.push(parts.slice(0, i).join('/'));
 
-                return this.get(variable, false, false)
-                    .then(old => {
-                        if (old && (typeof value !== 'undefined') && this.isEqual(old.value, value))
-                            return null;
+                return parents.reduce(
+                        (prev, cur) => {
+                            return prev.then(() => {
+                                return this.get(`${repo}:${cur}`)
+                                    .then(val => {
+                                        if (val)
+                                            return;
 
-                        if (!attrs)
-                            attrs = old;
-                        if (!attrs)
-                            attrs = {};
-                        this._initAttrs(attrs);
-                        if (typeof value !== 'undefined')
-                            attrs.value = value;
+                                        return this.set(`${repo}:${cur}`, null, null);
+                                    });
+                            });
+                        },
+                        Promise.resolve()
+                    )
+                    .then(() => {
 
-                        return this._cacher.set(variable, attrs)
-                            .then(() => {
-                                return this._filer.createDirectory(
-                                        directory,
-                                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                    )
+                        let info = this.directories.get(repo);
+                        let name = path.basename(filename);
+                        let directory = path.join(info.dataDir, path.dirname(filename));
+
+                        return this.get(variable, false, false)
+                            .then(old => {
+                                if (old && (typeof value !== 'undefined') && this.isEqual(old.value, value))
+                                    return null;
+
+                                if (!attrs)
+                                    attrs = old;
+                                if (!attrs)
+                                    attrs = {};
+                                this._initAttrs(attrs);
+                                if (typeof value !== 'undefined')
+                                    attrs.value = value;
+
+                                return this._cacher.set(variable, attrs)
                                     .then(() => {
-                                        let exists;
-                                        try {
-                                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
-                                            exists = true;
-                                        } catch (error) {
-                                            exists = false;
-                                        }
-
-                                        return new Promise((resolve, reject) => {
-                                            let tries = 0;
-                                            let retry = () => {
-                                                if (++tries > this.constructor.dataRetryMax)
-                                                    return reject(new Error(`Max retries reached while setting ${variable}`));
-
-                                                let success = false;
-                                                this._filer.lockUpdate(
-                                                        path.join(directory, '.vars.json'),
-                                                        contents => {
-                                                            let json;
-                                                            try {
-                                                                json = JSON.parse(contents);
-                                                            } catch (error) {
-                                                                if (exists)
-                                                                    return Promise.resolve(contents);
-                                                                json = {};
-                                                            }
-
-                                                            success = true;
-                                                            json[name] = attrs;
-                                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                                        },
-                                                        { mode: info.fileMode, uid: info.uid, gid: info.gid }
-                                                    )
-                                                    .then(() => {
-                                                        if (success)
-                                                            return resolve();
-
-                                                        setTimeout(() => {
-                                                            retry();
-                                                        }, this.constructor.dataRetryInterval);
-                                                    })
-                                                    .catch(error => {
-                                                        reject(error);
-                                                    });
-                                            };
-                                            retry();
-                                        });
-                                    })
-                                    .then(() => {
-                                        return this.addHistory(variable, attrs);
-                                    })
-                                    .then(id => {
-                                        this._index.insert(
-                                            'variable',
-                                            this._index.constructor.binUuid(attrs.id),
-                                            {
-                                                directory: repo,
-                                                path: filename,
-                                            }
-                                        );
-                                        return this.notify(variable, attrs)
+                                        return this._filer.createDirectory(
+                                            directory,
+                                            { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                                            )
                                             .then(() => {
-                                                return id;
+                                                let exists;
+                                                try {
+                                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                                    exists = true;
+                                                } catch (error) {
+                                                    exists = false;
+                                                }
+
+                                                return new Promise((resolve, reject) => {
+                                                    let tries = 0;
+                                                    let retry = () => {
+                                                        if (++tries > this.constructor.dataRetryMax)
+                                                            return reject(new Error(`Max retries reached while setting ${variable}`));
+
+                                                        let success = false;
+                                                        this._filer.lockUpdate(
+                                                            path.join(directory, '.vars.json'),
+                                                            contents => {
+                                                                let json;
+                                                                try {
+                                                                    json = JSON.parse(contents);
+                                                                } catch (error) {
+                                                                    if (exists)
+                                                                        return Promise.resolve(contents);
+                                                                    json = {};
+                                                                }
+
+                                                                success = true;
+                                                                json[name] = attrs;
+                                                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                                            },
+                                                            { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                                                            )
+                                                            .then(() => {
+                                                                if (success)
+                                                                    return resolve();
+
+                                                                setTimeout(() => {
+                                                                    retry();
+                                                                }, this.constructor.dataRetryInterval);
+                                                            })
+                                                            .catch(error => {
+                                                                reject(error);
+                                                            });
+                                                    };
+                                                    retry();
+                                                });
+                                            })
+                                            .then(() => {
+                                                return this.addHistory(variable, attrs);
+                                            })
+                                            .then(id => {
+                                                this._index.insert(
+                                                    'variable',
+                                                    this._index.constructor.binUuid(attrs.id),
+                                                    {
+                                                        directory: repo,
+                                                        path: filename,
+                                                    }
+                                                );
+                                                return this.notify(variable, attrs)
+                                                    .then(() => {
+                                                        return id;
+                                                    });
+                                            })
+                                            .catch(error => {
+                                                this._logger.error(`FS error: ${error.message}`);
                                             });
-                                    })
-                                    .catch(error => {
-                                        this._logger.error(`FS error: ${error.message}`);
                                     });
                             });
                     });
