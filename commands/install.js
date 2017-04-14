@@ -174,7 +174,23 @@ class Install {
 
                 let deviceId, deviceName;
 
-                return this._filer.remove('/var/lib/bhdir/.syncthing')
+                return Promise.resolve()
+                    .then(() => {
+                        try {
+                            fs.accessSync('/var/lib/bhdir/.syncthing', fs.constants.F_OK);
+                            return this._filer.remove('/var/lib/bhdir/.syncthing');
+                        } catch (error) {
+                            // do nothing
+                        }
+                    })
+                    .then(() => {
+                        try {
+                            fs.accessSync('/var/lib/bhdir/.core', fs.constants.F_OK);
+                            return this._filer.remove('/var/lib/bhdir/.core');
+                        } catch (error) {
+                            // do nothing
+                        }
+                    })
                     .then(() => {
                         return this._runner.exec(
                             syncthing,
@@ -275,6 +291,7 @@ class Install {
                                     json = {};
                                 }
 
+                                json.id = null;
                                 json.device = {
                                     id: deviceId,
                                     name: deviceName,

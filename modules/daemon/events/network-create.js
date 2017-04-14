@@ -2,6 +2,7 @@
  * Network Create event
  * @module daemon/events/network-create
  */
+const fs = require('fs');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
@@ -65,7 +66,20 @@ class NetworkCreate {
 
         let name = message.args[0];
 
-        this.syncthing.createNetwork(name)
+        new Promise((resolve, reject) => {
+                if (!this.syncthing.node)
+                    return reject(new Error('bhdir is not installed'));
+
+                try {
+                    fs.accessSync('/var/lib/bhdir/.core/data/home/.vars.json', fs.constants.F_OK);
+                    reject(new Error('We are already part of a network'));
+                } catch (error) {
+                    resolve();
+                }
+            })
+            .then(() => {
+                return this.syncthing.createNetwork(name);
+            })
             .then(() => {
                 reply(true);
             })

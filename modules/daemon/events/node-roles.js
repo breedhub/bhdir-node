@@ -1,14 +1,15 @@
 /**
- * Role Remove event
- * @module daemon/events/role-remove
+ * Node Roles event
+ * @module daemon/events/node-roles
  */
+const fs = require('fs');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Role Remove event class
+ * Node Roles event class
  */
-class RoleRemove {
+class NodeRoles {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +23,11 @@ class RoleRemove {
     }
 
     /**
-     * Service name is 'modules.daemon.events.roleRemove'
+     * Service name is 'modules.daemon.events.nodeRoles'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.roleRemove';
+        return 'modules.daemon.events.nodeRoles';
     }
 
     /**
@@ -47,7 +48,7 @@ class RoleRemove {
         if (!client)
             return;
 
-        this._logger.debug('role-remove', `Got ROLE REMOVE command`);
+        this._logger.debug('role-add', `Got ROLE ADD command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -56,37 +57,61 @@ class RoleRemove {
             if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('role-remove', `Sending ROLE REMOVE response`);
+            this._logger.debug('role-add', `Sending ROLE ADD response`);
             this.daemon.send(id, data);
         };
 
-        if (message.args.length !== 2)
+        if (message.args.length !== 3)
             return reply(false, 'Invalid arguments list');
 
-        if (this._syncthing.roles.indexOf('coordinator') === -1)
+        if (this.syncthing.roles.indexOf('coordinator') === -1)
             return reply(false, 'We are not a coordinator');
 
-        let name = message.args[0];
-        let roles = new Set(message.args[1]);
-        for (let role of roles) {
+        let nodeId = message.args[0];
+        let toAdd = new Set(message.args[1]);
+        let toRemove = new Set(message.args[2]);
+        for (let role of message.args[1].concat(message.args[2])) {
             if (this.syncthing.constructor.roles.indexOf(role) === -1)
                 return reply(false, 'Invalid role');
         }
 
-        Array.from(roles).reduce(
-                (prev, cur) => {
-                    return prev.then(() => {
-                        return this.syncthing.removeRole(name, cur);
-                    });
-                },
-                Promise.resolve()
-            )
+        new Promise((resolve, reject) => {
+                if (!this.syncthing.node)
+                    return reject(new Error('bhdir is not installed'));
+
+                try {
+                    fs.accessSync('/var/lib/bhdir/.core/data/home/.vars.json', fs.constants.F_OK);
+                    resolve();
+                } catch (error) {
+                    reject(new Error('We are not part of a network'));
+                }
+            })
+            .then(() => {
+                return Array.from(toAdd).reduce(
+                    (prev, cur) => {
+                        return prev.then(() => {
+                            return this.syncthing.addRole(nodeId, cur);
+                        });
+                    },
+                    Promise.resolve()
+                );
+            })
+            .then(() => {
+                return Array.from(toRemove).reduce(
+                    (prev, cur) => {
+                        return prev.then(() => {
+                            return this.syncthing.removeRole(nodeId, cur);
+                        });
+                    },
+                    Promise.resolve()
+                )
+            })
             .then(() => {
                 reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'RoleRemove.handle()'));
+                this._logger.error(new WError(error, 'NodeRoles.handle()'));
             });
     }
 
@@ -124,4 +149,4 @@ class RoleRemove {
     }
 }
 
-module.exports = RoleRemove;
+module.exports = NodeRoles;

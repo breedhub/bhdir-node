@@ -1,14 +1,15 @@
 /**
- * Role Add event
- * @module daemon/events/role-add
+ * Node Create event
+ * @module daemon/events/node-create
  */
+const fs = require('fs');
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Role Add event class
+ * Node Create event class
  */
-class RoleAdd {
+class NodeCreate {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +23,11 @@ class RoleAdd {
     }
 
     /**
-     * Service name is 'modules.daemon.events.roleAdd'
+     * Service name is 'modules.daemon.events.nodeCreate'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.roleAdd';
+        return 'modules.daemon.events.nodeCreate';
     }
 
     /**
@@ -47,46 +48,45 @@ class RoleAdd {
         if (!client)
             return;
 
-        this._logger.debug('role-add', `Got ROLE ADD command`);
-        let reply = (success, value) => {
+        this._logger.debug('node-create', `Got NODE CREATE command`);
+        let reply = (success, value, token) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (!success)
+            if (success) {
+                reply.results = [
+                    value,
+                    token
+                ];
+            } else {
                 reply.message = value;
+            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('role-add', `Sending ROLE ADD response`);
+            this._logger.debug('node-create', `Sending NODE CREATE response`);
             this.daemon.send(id, data);
         };
 
-        if (message.args.length !== 2)
-            return reply(false, 'Invalid arguments list');
+        new Promise((resolve, reject) => {
+                if (!this.syncthing.node)
+                    return reject(new Error('bhdir is not installed'));
 
-        if (this._syncthing.roles.indexOf('coordinator') === -1)
-            return reply(false, 'We are not a coordinator');
-
-        let name = message.args[0];
-        let roles = new Set(message.args[1]);
-        for (let role of roles) {
-            if (this.syncthing.constructor.roles.indexOf(role) === -1)
-                return reply(false, 'Invalid role');
-        }
-
-        Array.from(roles).reduce(
-                (prev, cur) => {
-                    return prev.then(() => {
-                        return this.syncthing.addRole(name, cur);
-                    });
-                },
-                Promise.resolve()
-            )
+                try {
+                    fs.accessSync('/var/lib/bhdir/.core/data/home/.vars.json', fs.constants.F_OK);
+                    resolve();
+                } catch (error) {
+                    reject(new Error('We are not part of a network'));
+                }
+            })
             .then(() => {
-                reply(true);
+                return this.syncthing.createNode();
+            })
+            .then(({ id, token }) => {
+                reply(true, id, token);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'RoleAdd.handle()'));
+                this._logger.error(new WError(error, 'NodeCreate.handle()'));
             });
     }
 
@@ -124,4 +124,4 @@ class RoleAdd {
     }
 }
 
-module.exports = RoleAdd;
+module.exports = NodeCreate;

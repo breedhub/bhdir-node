@@ -71,7 +71,7 @@ class Help {
                 '\thelp\t\tPrint help about any other command\n' +
                 '\tinstall\t\tInitialize the installation\n' +
                 '\tnetwork\t\tManage networks\n' +
-                '\trole\t\tManage node roles\n' +
+                '\tnode\t\tManage nodes\n' +
                 '\tls\t\tList variables of a path\n' +
                 '\tset\t\tSet variable value\n' +
                 '\tget\t\tGet variable value\n' +
@@ -135,7 +135,7 @@ class Help {
     helpNetwork(argv) {
         return this._app.info(
                 'Usage:\tbhdirctl network create <name>\n\n' +
-                '\tManage networks. When creating current node is assigned coordinator and relay roles'
+                '\tCreates new network. Current node joins the network automatically and is assigned coordinator role'
             )
             .then(() => {
                 process.exit(0);
@@ -143,14 +143,16 @@ class Help {
     }
 
     /**
-     * Role command
+     * Node command
      * @param {string[]} argv           Arguments
      * @return {Promise}
      */
-    helpRole(argv) {
+    helpNode(argv) {
         return this._app.info(
-                'Usage:\tbhdirctl role [add|remove] <role-name> [... <role-name>] [-n <node>]\n\n' +
-                '\tManage node roles. Current node is assumed if no name provided.'
+                'Usage:\tbhdirctl node create\n\n' +
+                '\tCreates new node.\n\n' +
+                'Usage:\tbhdirctl node roles <node-id> [-a <role-name>] [-r <role-name>]\n\n' +
+                '\tSets node roles. Option -a adds a role, -r removes a role.'
             )
             .then(() => {
                 process.exit(0);

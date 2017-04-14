@@ -1,6 +1,6 @@
 /**
  * Network command
- * @module commands/role
+ * @module commands/network
  */
 const path = require('path');
 const net = require('net');

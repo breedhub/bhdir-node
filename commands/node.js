@@ -1,6 +1,6 @@
 /**
- * Role command
- * @module commands/role
+ * Node command
+ * @module commands/node
  */
 const path = require('path');
 const net = require('net');
@@ -11,7 +11,7 @@ const SocketWrapper = require('socket-wrapper');
 /**
  * Command class
  */
-class Role {
+class Node {
     /**
      * Create the service
      * @param {App} app                 The application
@@ -25,11 +25,11 @@ class Role {
     }
 
     /**
-     * Service name is 'commands.role'
+     * Service name is 'commands.node'
      * @type {string}
      */
     static get provides() {
-        return 'commands.role';
+        return 'commands.node';
     }
 
     /**
@@ -53,9 +53,14 @@ class Role {
                 type: 'boolean',
             })
             .option({
-                name: 'target',
-                short: 't',
-                type: 'string',
+                name: 'add',
+                short: 'a',
+                type: 'list,string',
+            })
+            .option({
+                name: 'remove',
+                short: 'r',
+                type: 'list,string',
             })
             .option({
                 name: 'socket',
@@ -65,25 +70,30 @@ class Role {
             .run(argv);
 
         if (args.targets.length < 2)
-            return this._help.helpRole(argv);
+            return this._help.helpNode(argv);
 
+        let commandName, commandArgs = [];
         let sub = args.targets[1];
-        if ([ 'add', 'remove' ].indexOf(sub) === -1)
-            return this._help.helpRole(argv);
-
-        let roles = args.targets.slice(2);
-        if (!roles.length)
-            return this._help.helpRole(argv);
-
-        let target = args.options['target'] || null;
+        switch (sub) {
+            case 'create':
+                commandName = 'node-create';
+                break;
+            case 'roles':
+                if (args.targets.length < 3)
+                    return this._help.helpNode(argv);
+                commandName = 'node-roles';
+                commandArgs.push(args.targets[2]);
+                commandArgs.push(args.options['add'] || []);
+                commandArgs.push(args.options['remove'] || []);
+                break;
+            default:
+                return this._help.helpNode(argv);
+        }
 
         let request = {
             id: uuid.v4(),
-            command: `role-${sub}`,
-            args: [
-                target,
-                roles,
-            ]
+            command: commandName,
+            args: commandArgs,
         };
 
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
@@ -94,6 +104,12 @@ class Role {
 
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
+
+                return (response.results || []).reduce((prev, cur) => {
+                    return prev.then(() => {
+                        return this._app.info(cur);
+                    });
+                }, Promise.resolve());
             })
             .then(() => {
                 process.exit(0);
@@ -155,4 +171,4 @@ class Role {
     }
 }
 
-module.exports = Role;
+module.exports = Node;

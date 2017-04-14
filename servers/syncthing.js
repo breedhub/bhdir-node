@@ -19,9 +19,9 @@ class Syncthing extends EventEmitter {
      * @param {Logger} logger                       Logger service
      * @param {Runner} runner                       Runner service
      * @param {Filer} filer                         Filer service
-     * @param {Cacher} cacher                       Cacher service
+     * @param {Util} util                           Util service
      */
-    constructor(app, config, logger, runner, filer, cacher) {
+    constructor(app, config, logger, runner, filer, util) {
         super();
 
         this.syncthing = null;
@@ -34,7 +34,7 @@ class Syncthing extends EventEmitter {
         this._logger = logger;
         this._runner = runner;
         this._filer = filer;
-        this._cacher = cacher;
+        this._util = util;
     }
 
     /**
@@ -50,7 +50,7 @@ class Syncthing extends EventEmitter {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'logger', 'runner', 'filer', 'cacher' ];
+        return [ 'app', 'config', 'logger', 'runner', 'filer', 'util' ];
     }
 
     /**
@@ -199,12 +199,15 @@ class Syncthing extends EventEmitter {
                             return;
                         }
 
-                        return this._directory.get(`.core:/home/nodes/${this.node.device.id}/roles`)
-                            .then(roles => {
-                                if (!roles || !roles.value)
+                        if (!this.node.id)
+                            return;
+
+                        return this._directory.get(`.core:/home/nodes/by_id/${this.node.id}`)
+                            .then(info => {
+                                if (!info || !info.value)
                                     return;
 
-                                this.roles = roles.value;
+                                this.roles = info.value.roles || [];
                             });
                     });
             })
@@ -273,22 +276,20 @@ class Syncthing extends EventEmitter {
      * @return {Promise}
      */
     createNetwork(name) {
-        return new Promise((resolve, reject) => {
-                if (!this.node)
-                    return reject(new Error('bhdir not installed'));
-
-                try {
-                    fs.accessSync('/var/lib/bhdir/.core/data/home/.vars.json', fs.constants.F_OK);
-                    reject(new Error('We are already part of a network'));
-                } catch (error) {
-                    resolve();
+        let now = Math.round(Date.now() / 1000);
+        return this._filer.lockUpdate(
+                '/var/lib/bhdir/.config/node.json',
+                contents => {
+                    let json = JSON.parse(contents);
+                    json.id = 1;
+                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                 }
-            })
+            )
             .then(() => {
                 return this._directory.set(
                     '.core:/home/created',
                     null,
-                    Math.round(Date.now() / 1000)
+                    now
                 );
             })
             .then(() => {
@@ -300,50 +301,104 @@ class Syncthing extends EventEmitter {
             })
             .then(() => {
                 return this._directory.set(
-                    '.core:/home/nodes/index',
+                    '.core:/home/last_id',
+                    null,
+                    '1'
+                );
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/nodes/by_id/1',
                     null,
                     {
-                        [this.node.device.name]: this.node.device.id,
+                        created: now,
+                        roles: [],
+                    }
+                );
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/nodes/devices',
+                    null,
+                    {
+                        [this.node.device.id]: { node_id: '1' },
                     }
                 );
             })
             .then(() => {
                 return this.addRole(null, 'coordinator');
-            })
+            });
+    }
+
+    /**
+     * Create node
+     * @return {Promise}                            Resolves to { id, token }
+     */
+    createNode() {
+        return this._directory.get('.core:/home/last_id')
+            .then(lastId => {
+                if (!lastId || !lastId.value)
+                    return;
+
+                let nodeId = (parseInt(lastId.value) + 1).toString();
+                let token = this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false });
+                return this._directory.set(
+                        `.core:/home/nodes/by_id/${nodeId}`,
+                        null,
+                        {
+                            created: Math.round(Date.now() / 1000),
+                            roles: [],
+                        }
+                    )
+                    .then(() => {
+                        return this._directory.set(
+                            '.core:/home/last_id',
+                            null,
+                            nodeId
+                        );
+                    })
+                    .then(() => {
+                        return this._directory.set(
+                            `.core:/home/nodes/tokens/${token}`,
+                            null,
+                            {
+                                node_id: nodeId,
+                            }
+                        );
+                    })
+                    .then(() => {
+                        return { id: nodeId, token: token };
+                    });
+            });
     }
 
     /**
      * Add role
-     * @param {string|null} name                Name of the node
+     * @param {string|null} id                  Node ID
      * @param {string} role                     Name of the role
      * @return {Promise}
      */
-    addRole(name, role) {
-        if (!this.node)
+    addRole(id, role) {
+        if (!this.node || !this.node.id)
             return Promise.resolve();
 
-        if (!name)
-            name = this.node.device.name;
+        if (!id)
+            id = this.node.id;
 
-        return this._directory.get('.core:/home/nodes/index')
-            .then(names => {
-                if (!names || !names.value)
+        return this._directory.get(`.core:/home/nodes/by_id/${id}`)
+            .then(info => {
+                if (!info || !info.value)
                     return;
 
-                let id = names.value[name];
-                return this._directory.get(`.core:/home/nodes/${id}/roles`)
-                    .then(variable => {
-                        let roles = [];
-                        if (variable && variable.value)
-                            roles = variable.value;
+                if (info.value.roles.indexOf(role) === -1)
+                    info.value.roles.push(role);
 
-                        if (roles.indexOf(role) === -1)
-                            roles.push(role);
+                if (id === this.node.id)
+                    this.roles = info.value.roles;
 
-                        return this._directory.set(`.core:/home/nodes/${id}/roles`, null, roles);
-                    })
+                return this._directory.set(`.core:/home/nodes/by_id/${id}`, info)
                     .then(() => {
-                        if (name === this.node.device.name && role === 'coordinator')
+                        if (id === this.node.id && role === 'coordinator')
                             return this._coordinator.startListening();
                     });
             });
@@ -351,38 +406,33 @@ class Syncthing extends EventEmitter {
 
     /**
      * Remove role
-     * @param {string} name                     Name of the node
+     * @param {string|null} id                  Node ID
      * @param {string} role                     Name of the role
      * @return {Promise}
      */
-    removeRole(name, role) {
-        if (!this.node)
+    removeRole(id, role) {
+        if (!this.node || !this.node.id)
             return Promise.resolve();
 
-        if (!name)
-            name = this.node.device.name;
+        if (!id)
+            id = this.node.id;
 
-        return this._directory.get('.core:/home/nodes/index')
-            .then(names => {
-                if (!names || !names.value)
+        return this._directory.get(`.core:/home/nodes/by_id/${id}`)
+            .then(info => {
+                if (!info || !info.value)
                     return;
 
-                let id = names.value[name];
-                return this._directory.get(`.core:/home/nodes/${id}/roles`)
-                    .then(variable => {
-                        let roles = [];
-                        if (variable && variable.value)
-                            roles = variable.value;
+                info.value.roles = info.value.roles.filter(value => { return value !== role; });
 
-                        roles = roles.filter(value => { return value !== role; });
+                if (id === this.node.id)
+                    this.roles = info.value.roles;
 
-                        return this._directory.set(`.core:/home/nodes/${id}/roles`, null, roles);
-                    })
+                return this._directory.set(`.core:/home/nodes/by_id/${id}`, info)
                     .then(() => {
-                        if (name === this.node.device.name && role === 'coordinator')
+                        if (id === this.node.id && role === 'coordinator')
                             return this._coordinator.stopListening();
                     });
-            });
+            })
     }
 
     /**

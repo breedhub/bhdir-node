@@ -97,11 +97,11 @@ class Daemon {
         let networkCreate = this._app.get('modules.daemon.events.networkCreate');
         server.on('network-create', networkCreate.handle.bind(networkCreate));
 
-        let roleAdd = this._app.get('modules.daemon.events.roleAdd');
-        server.on('role-add', roleAdd.handle.bind(roleAdd));
+        let nodeCreate = this._app.get('modules.daemon.events.nodeCreate');
+        server.on('node-create', nodeCreate.handle.bind(nodeCreate));
 
-        let roleRemove = this._app.get('modules.daemon.events.roleRemove');
-        server.on('role-remove', roleRemove.handle.bind(roleRemove));
+        let nodeRoles = this._app.get('modules.daemon.events.nodeRoles');
+        server.on('node-roles', nodeRoles.handle.bind(nodeRoles));
 
         let index = this._app.get('modules.daemon.events.index');
         server.on('index', index.handle.bind(index));

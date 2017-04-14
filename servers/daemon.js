@@ -288,11 +288,11 @@ class Daemon extends EventEmitter {
                 case 'network-create':
                     this.emit('network-create', id, message);
                     break;
-                case 'role-add':
-                    this.emit('role-add', id, message);
+                case 'node-create':
+                    this.emit('node-create', id, message);
                     break;
-                case 'role-remove':
-                    this.emit('role-remove', id, message);
+                case 'node-roles':
+                    this.emit('node-roles', id, message);
                     break;
                 case 'index':
                     this.emit('index', id, message);
