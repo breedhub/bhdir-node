@@ -313,21 +313,17 @@ class Syncthing extends EventEmitter {
                     null,
                     {
                         created: now,
-                        roles: [],
+                        roles: [ 'coordinator' ],
+                        devices: {
+                            [this.node.device.id]: {
+                                name: this.node.device.name,
+                            }
+                        },
                     }
                 );
             })
             .then(() => {
-                return this._directory.set(
-                    `.core:/home/nodes/by_device_id/${this.node.device.id}`,
-                    null,
-                    {
-                        node_id: '1',
-                    }
-                );
-            })
-            .then(() => {
-                return this.addRole(null, 'coordinator');
+                return this._coordinator.startListening();
             });
     }
 
@@ -336,6 +332,7 @@ class Syncthing extends EventEmitter {
      * @return {Promise}                            Resolves to { id, token }
      */
     createNode() {
+        let now = Math.round(Date.now() / 1000);
         return this._directory.get('.core:/home/last_id')
             .then(lastId => {
                 if (!lastId || !lastId.value)
@@ -347,8 +344,9 @@ class Syncthing extends EventEmitter {
                         `.core:/home/nodes/by_id/${nodeId}`,
                         null,
                         {
-                            created: Math.round(Date.now() / 1000),
+                            created: now,
                             roles: [],
+                            devices: {},
                         }
                     )
                     .then(() => {
@@ -360,10 +358,11 @@ class Syncthing extends EventEmitter {
                     })
                     .then(() => {
                         return this._directory.set(
-                            `.core:/home/nodes/tokens/${token}`,
+                            `.core:/home/nodes/by_token/${token}`,
                             null,
                             {
                                 node_id: nodeId,
+                                created: now,
                             }
                         );
                     })
