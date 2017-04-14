@@ -281,11 +281,12 @@ class Syncthing extends EventEmitter {
                 '/var/lib/bhdir/.config/node.json',
                 contents => {
                     let json = JSON.parse(contents);
-                    json.id = 1;
+                    json.id = '1';
                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                 }
             )
             .then(() => {
+                this.node.id = '1';
                 return this._directory.set(
                     '.core:/home/created',
                     null,
@@ -318,10 +319,10 @@ class Syncthing extends EventEmitter {
             })
             .then(() => {
                 return this._directory.set(
-                    '.core:/home/nodes/devices',
+                    `.core:/home/nodes/by_device_id/${this.node.device.id}`,
                     null,
                     {
-                        [this.node.device.id]: { node_id: '1' },
+                        node_id: '1',
                     }
                 );
             })
