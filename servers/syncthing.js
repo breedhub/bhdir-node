@@ -409,7 +409,7 @@ class Syncthing extends EventEmitter {
 
                 this._logger.debug('coordinator', `Response ${message.type} from ${address}`);
                 if (message.type !== this._coordinator.ServerMessage.Type.JOIN_NETWORK_RESPONSE ||
-                    message.messageId === msg.messageId ||
+                    message.messageId !== msg.messageId ||
                     message.joinNetworkResponse.response !== this._coordinator.JoinNetworkResponse.Result.ACCEPTED)
                 {
                     throw new Error('Join request rejected');
