@@ -41,17 +41,11 @@ module.exports = {
         directory: {
             class: 'servers.directory',
         },
-        daemon: {
-            class: 'servers.daemon',
-        },
-        state: {
-            class: 'servers.state',
-        },
         index: {
             class: 'servers.index',
         },
-        resilio: {
-            class: 'servers.resilio',
+        daemon: {
+            class: 'servers.daemon',
         },
         syncthing: {
             class: 'servers.syncthing',
