@@ -382,17 +382,17 @@ class Syncthing extends EventEmitter {
         if (!this.node || this.node.id)
             return Promise.resolve();
 
-        let request = this.coordinator.JoinNetworkRequest.create({
+        let request = this._coordinator.JoinNetworkRequest.create({
             token: token,
-            deviceId: this.syncthing.node.device.id,
-            deviceName: this.syncthing.node.device.name,
+            deviceId: this.node.device.id,
+            deviceName: this.node.device.name,
         });
-        let msg = this.coordinator.ClientMessage.create({
-            type: this.coordinator.ClientMessage.Type.JOIN_NETWORK_REQUEST,
+        let msg = this._coordinator.ClientMessage.create({
+            type: this._coordinator.ClientMessage.Type.JOIN_NETWORK_REQUEST,
             messageId: uuid.v4(),
             joinNetworkRequest: request,
         });
-        let data = this.coordinator.ClientMessage.encode(msg).finish();
+        let data = this._coordinator.ClientMessage.encode(msg).finish();
         this._logger.debug('coordinator', `Sending JOIN REQUEST to ${address}`);
         return this._coordinator.request(address, data)
             .then(response => {
@@ -401,15 +401,15 @@ class Syncthing extends EventEmitter {
 
                 let message;
                 try {
-                    message = this.ServerMessage.decode(response);
+                    message = this._coordinator.ServerMessage.decode(response);
                 } catch (error) {
                     this._logger.error(`Coordinator protocol error: ${error.message}`);
                     return;
                 }
 
                 this._logger.debug('coordinator', `Response ${message.type} from ${address}`);
-                if (message.type === this.ClientMessage.Type.JOIN_NETWORK_RESPONSE && message.messageId === msg.messageId) {
-                    if (message.joinNetworkResponse.response !== this.coordinator.JoinNetworkResponse.Result.ACCEPTED)
+                if (message.type === this._coordinator.ClientMessage.Type.JOIN_NETWORK_RESPONSE && message.messageId === msg.messageId) {
+                    if (message.joinNetworkResponse.response !== this._coordinator.JoinNetworkResponse.Result.ACCEPTED)
                         throw new Error('Join request rejected');
 
                     return this._filer.lockUpdate(
@@ -422,7 +422,7 @@ class Syncthing extends EventEmitter {
                             }
                         )
                         .then(() => {
-                            return this.syncthing.syncTempFolder(
+                            return this.syncTempFolder(
                                 message.joinNetworkResponse.folderId,
                                 '.core',
                                 message.joinNetworkResponse.deviceId,
