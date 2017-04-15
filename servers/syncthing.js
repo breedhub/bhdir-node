@@ -126,18 +126,20 @@ class Syncthing extends EventEmitter {
     static getMainBinary() {
         return Promise.resolve(path.join(__dirname, '..', 'dist', `syncthing-${this.version}`))
             .then(bin => {
-                let ver;
+                let platform, ver;
                 if (os.platform() === 'freebsd') {
+                    platform = 'freebsd';
                     ver = os.release().replace(/^([0-9]+).*$/, '$1');
                 } else {
                     try {
                         let release = fs.readFileSync('/etc/debian_version', 'utf8');
+                        platform = 'debian';
                         ver = release.replace(/^([0-9]+).*$/, '$1');
                     } catch (error) {
                         return null;
                     }
                 }
-                return path.join(bin, os.platform() + '-' + ver + '-' + os.arch());
+                return path.join(bin, platform + '-' + ver + '-' + os.arch());
             })
             .then(bin => {
                 if (!bin)
