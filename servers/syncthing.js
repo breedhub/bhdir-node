@@ -645,7 +645,14 @@ class Syncthing extends EventEmitter {
                             autoNormalize: "true",
                         };
                         this.folders.set(folderName, attributes);
-                        folders.push(this._initFolder(attributes));
+                        let folder = this._initFolder(attributes);
+                        folder.devices.push({
+                            _attributes: {
+                                id: deviceId,
+                                introducedBy: "",
+                            }
+                        });
+                        folders.push();
                     }
                     st.configuration.folder = folders;
 

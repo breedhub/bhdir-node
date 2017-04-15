@@ -161,7 +161,7 @@ class Directory extends EventEmitter {
                     (prev, cur) => {
                         let info = this.directories.get(cur);
                         try {
-                            fs.accessSync(info.rootDir, fs.constants.F_OK);
+                            fs.accessSync(info.dataDir, fs.constants.F_OK);
                             info.enabled = true;
                         } catch (error) {
                         }
