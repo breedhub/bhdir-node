@@ -604,32 +604,32 @@ class Syncthing extends EventEmitter {
                 contents => {
                     let st = convert.xml2js(contents, { compact: true });
 
-                    let folders = [];
+                    let folders = !st.configuration.folder ? [] :
+                        Array.isArray(st.configuration.folder) ? st.configuration.folder : [ st.configuration.folder ];
                     let folderFound = false;
-                    for (let folder of Array.isArray(st.configuration.folder) ? st.configuration.folder : [ st.configuration.folder ]) {
-                        if (folder._attributes.id !== folderId)
+                    for (let i = 0; i < folders.length; i++) {
+                        if (folders[i]._attributes.id !== folderId)
                             continue;
 
                         folderFound = true;
-                        let oldDevices = Array.isArray(folder.device) ? folder.device : [ folder.device ];
-                        let newDevices = [];
-                        let found = false;
-                        for (let oldDevice of oldDevices) {
-                            if (oldDevice._attributes.id === deviceId) {
-                                found = true;
+                        let devices = !folders[i].device ? [] :
+                            Array.isArray(folders[i].device) ? folders[i].device : [ folders[i].device ];
+                        let deviceFound = false;
+                        for (let j = 0; j < devices.length; j++) {
+                            if (devices[j]._attributes.id === deviceId) {
+                                deviceFound = true;
                                 break;
                             }
                         }
-                        if (!found) {
-                            newDevices.push({
+                        if (!deviceFound) {
+                            devices.push({
                                 _attributes: {
                                     id: deviceId,
                                     introducedBy: "",
                                 }
                             });
                         }
-                        folder.device = oldDevices.concat(newDevices);
-                        folders.push(folder);
+                        folders[i].device = devices;
                     }
                     if (!folderFound) {
                         let attributes = {
@@ -642,29 +642,22 @@ class Syncthing extends EventEmitter {
                             autoNormalize: "true",
                         };
                         this.folders.set(folderName, attributes);
-                        let folder = this._initFolder(attributes);
-                        folder.device.push({
-                            _attributes: {
-                                id: deviceId,
-                                introducedBy: "",
-                            }
-                        });
-                        folders.push(folder);
+                        folders.push(this._initFolder(attributes));
                     }
                     st.configuration.folder = folders;
 
-                    let oldDevices = Array.isArray(st.configuration.device) ? st.configuration.device : [ st.configuration.device ];
-                    let newDevices = [];
-                    let found = false;
-                    for (let device of oldDevices) {
-                        if (device._attributes.id === deviceId) {
-                            found = true;
+                    let devices = !st.configuration.device ? [] :
+                        Array.isArray(st.configuration.device) ? st.configuration.device : [ st.configuration.device ];
+                    let deviceFound = false;
+                    for (let i = 0; i < devices.length; i++) {
+                        if (devices[i]._attributes.id === deviceId) {
+                            deviceFound = true;
                             break;
                         }
                     }
-                    if (!found)
-                        newDevices.push(this._initDevice(deviceId, deviceName));
-                    st.configuration.device = oldDevices.concat(newDevices);
+                    if (!deviceFound)
+                        devices.push(this._initDevice(deviceId, deviceName));
+                    st.configuration.device = devices;
 
                     return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
                 }
