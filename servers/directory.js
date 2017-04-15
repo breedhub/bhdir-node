@@ -34,6 +34,7 @@ class Directory extends EventEmitter {
         this.waiting = new Map();
 
         let info = {
+            enabled: false,
             rootDir: '/var/lib/bhdir/.core',
             dataDir: '/var/lib/bhdir/.core/data',
             dirMode: 0o770,
@@ -159,30 +160,15 @@ class Directory extends EventEmitter {
                 return Array.from(this.directories.keys()).reduce(
                     (prev, cur) => {
                         let info = this.directories.get(cur);
-                        return prev.then(() => {
-                                if (cur[0] === '.' || !info.group)
-                                    return;
-
-                                if (os.platform() === 'freebsd')
-                                    return this._runner.exec('pw', ['groupadd', info.group]);
-
-                                return this._runner.exec('groupadd', [info.group]);
-                            })
-                            .then(() => {
-                                if (cur[0] === '.' || !info.group || !this.syncUser)
-                                    return;
-
-                                if (os.platform() === 'freebsd')
-                                    return this._runner.exec('pw', ['groupmod', info.group, '-m', this.syncUser]);
-
-                                return this._runner.exec('usermod', ['-G', info.group, '-a', this.syncUser]);
-                            })
-                            .then(() => {
-                                return Promise.all([
-                                    this._runner.exec('grep', ['-E', `^${info.user}:`, '/etc/passwd']),
-                                    this._runner.exec('grep', ['-E', `^${info.group}:`, '/etc/group']),
-                                ]);
-                            })
+                        try {
+                            fs.accessSync(info.rootDir, fs.constants.F_OK);
+                            info.enabled = true;
+                        } catch (error) {
+                        }
+                        return Promise.all([
+                                this._runner.exec('grep', ['-E', `^${info.user}:`, '/etc/passwd']),
+                                this._runner.exec('grep', ['-E', `^${info.group}:`, '/etc/group']),
+                            ])
                             .then(([userInfo, groupInfo]) => {
                                 let userDb = userInfo.stdout.trim().split(':');
                                 if (userInfo.code !== 0 || userDb.length !== 7) {
@@ -201,6 +187,39 @@ class Directory extends EventEmitter {
                                 } else {
                                     info.gid = parseInt(groupDb[2]);
                                 }
+                            })
+                            .then(() => {
+                                if (!info.enabled)
+                                    return;
+
+                                return this._filer.lockUpdate(
+                                    path.join(info.dataDir, '.bhdir.json'),
+                                    contents => {
+                                        let json;
+                                        try {
+                                            json = JSON.parse(contents);
+                                            if (typeof json !== 'object')
+                                                return Promise.reject(new Error(`.bhdir.json of ${repo} is damaged`));
+                                        } catch (error) {
+                                            json = {};
+                                        }
+
+                                        if (!json.directory)
+                                            json.directory = {};
+                                        if (!json.directory.format)
+                                            json.directory.format = 2;
+                                        if (!json.directory.upgrading)
+                                            json.directory.upgrading = false;
+
+                                        info.enabled = (json.directory.format === 2);
+
+                                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                    }
+                                    )
+                                    .then(() => {
+                                        if (!info.enabled)
+                                            this._logger.info(`Unsupported directory format of ${repo} - ignoring...`);
+                                    });
                             });
                     },
                     Promise.resolve()
@@ -379,41 +398,20 @@ class Directory extends EventEmitter {
                 { mode: info.dirMode, uid: info.uid, gid: info.gid }
             )
             .then(() => {
-                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
-            })
-            .then(() => {
-                return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
-            })
-            .then(() => {
-                return this._filer.lockUpdate(
+                return this._filer.lockWrite(
                     path.join(info.dataDir, '.bhdir.json'),
-                    contents => {
-                        let json;
-                        try {
-                            json = JSON.parse(contents);
-                            if (typeof json !== 'object')
-                                return Promise.reject(new Error(`.bhdir.json of ${repo} is damaged`));
-                        } catch (error) {
-                            json = {};
+                    JSON.stringify({
+                        directory: {
+                            format: 2,
+                            upgrading: false,
                         }
-
-                        if (!json.directory)
-                            json.directory = {};
-                        if (!json.directory.format)
-                            json.directory.format = 2;
-                        if (!json.directory.upgrading)
-                            json.directory.upgrading = false;
-
-                        info.enabled = (json.directory.format === 2);
-
-                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                    }
-                    )
-                    .then(() => {
-                        if (!info.enabled)
-                            this._logger.info(`Unsupported directory format of ${repo} - ignoring...`);
-                    });
-            });
+                    }),
+                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                );
+            })
+            .then(() => {
+                info.enabled = true;
+            })
     }
 
     /**
