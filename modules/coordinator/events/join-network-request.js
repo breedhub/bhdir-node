@@ -80,6 +80,7 @@ class JoinNetworkRequest {
                     .then(() => {
                         let response = this.coordinator.JoinNetworkResponse.create({
                             response: this.coordinator.JoinNetworkResponse.Result.ACCEPTED,
+                            nodeId: nodeId,
                             deviceId: this.syncthing.node.device.id,
                             deviceName: this.syncthing.node.device.name,
                             folderId: this.syncthing.folders.get('.core').id,

@@ -134,7 +134,7 @@ class Syncthing extends EventEmitter {
                     try {
                         let release = fs.readFileSync('/etc/debian_version', 'utf8');
                         platform = 'debian';
-                        ver = release.replace(/^([0-9]+).*$/, '$1');
+                        ver = release.trim().replace(/^([0-9]+).*$/, '$1');
                     } catch (error) {
                         return null;
                     }
@@ -379,7 +379,7 @@ class Syncthing extends EventEmitter {
      * @param {string} token                        Join token
      */
     joinNetwork(address, token) {
-        if (!this.node || !this.node.id)
+        if (!this.node || this.node.id)
             return Promise.resolve();
 
         let request = this.coordinator.JoinNetworkRequest.create({
@@ -412,12 +412,23 @@ class Syncthing extends EventEmitter {
                     if (message.joinNetworkResponse.response !== this.coordinator.JoinNetworkResponse.Result.ACCEPTED)
                         throw new Error('Join request rejected');
 
-                    return this.syncthing.syncTempFolder(
-                        message.joinNetworkResponse.folderId,
-                        '.core',
-                        message.joinNetworkResponse.deviceId,
-                        message.joinNetworkResponse.deviceName
-                    );
+                    return this._filer.lockUpdate(
+                            '/var/lib/bhdir/.config/node.json',
+                            contents => {
+                                let json = JSON.parse(contents);
+                                json.id = message.joinNetworkResponse.nodeId;
+                                this.node = json;
+                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                            }
+                        )
+                        .then(() => {
+                            return this.syncthing.syncTempFolder(
+                                message.joinNetworkResponse.folderId,
+                                '.core',
+                                message.joinNetworkResponse.deviceId,
+                                message.joinNetworkResponse.deviceName
+                            );
+                        })
                 }
             });
     }

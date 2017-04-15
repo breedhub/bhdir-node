@@ -13,9 +13,10 @@ message JoinNetworkResponse {
         REJECTED = 1;
     }
     required Result response = 1;
-    optional string device_id = 2;
-    optional string device_name = 3;
-    optional string folder_id = 4;
+    optional string node_id = 2;
+    optional string device_id = 3;
+    optional string device_name = 4;
+    optional string folder_id = 5;
 }
 
 message ClientMessage {
