@@ -1,0 +1,37 @@
+syntax = "proto3";
+package coordinator;
+
+message JoinNetworkRequest {
+    required string token = 1;
+    required string device_id = 2;
+    required string device_name = 3;
+}
+
+message JoinNetworkResponse {
+    enum Result {
+        ACCEPTED = 0;
+        REJECTED = 1;
+    }
+    required Result response = 1;
+    optional string device_id = 2;
+    optional string device_name = 3;
+    optional string folder_id = 4;
+}
+
+message ClientMessage {
+    enum Type {
+        JOIN_NETWORK_REQUEST = 10;
+    }
+    required Type type = 1;
+    optional string message_id = 2;
+    optional JoinNetworkRequest join_network_request = 100;
+}
+
+message ServerMessage {
+    enum Type {
+        JOIN_NETWORK_RESPONSE = 10;
+    }
+    required Type type = 1;
+    optional string message_id = 2;
+    optional JoinNetworkResponse join_network_response = 100;
+}

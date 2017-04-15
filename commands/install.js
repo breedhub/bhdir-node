@@ -276,7 +276,7 @@ class Install {
 
                                 deviceId = st.configuration.device._attributes.id;
                                 deviceName = st.configuration.device._attributes.name;
-                                return Promise.resolve(convert.js2xml(st, {compact: true, spaces: 4}));
+                                return Promise.resolve(convert.js2xml(st, {compact: true, spaces: 4}) + '\n');
                             }
                         );
                     })

@@ -95,13 +95,16 @@ class Daemon {
         server.on('download', download.handle.bind(download));
 
         let networkCreate = this._app.get('modules.daemon.events.networkCreate');
-        server.on('network-create', networkCreate.handle.bind(networkCreate));
+        server.on('network_create', networkCreate.handle.bind(networkCreate));
+
+        let networkJoin = this._app.get('modules.daemon.events.networkJoin');
+        server.on('network_join', networkJoin.handle.bind(networkJoin));
 
         let nodeCreate = this._app.get('modules.daemon.events.nodeCreate');
-        server.on('node-create', nodeCreate.handle.bind(nodeCreate));
+        server.on('node_create', nodeCreate.handle.bind(nodeCreate));
 
         let nodeRoles = this._app.get('modules.daemon.events.nodeRoles');
-        server.on('node-roles', nodeRoles.handle.bind(nodeRoles));
+        server.on('node_roles', nodeRoles.handle.bind(nodeRoles));
 
         let index = this._app.get('modules.daemon.events.index');
         server.on('index', index.handle.bind(index));

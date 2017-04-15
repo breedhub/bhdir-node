@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const uuid = require('uuid');
+const protobuf = require('protobufjs');
 const EventEmitter = require('events');
 const WError = require('verror').WError;
 const SocketWrapper = require('socket-wrapper');
@@ -74,7 +75,24 @@ class Coordinator extends EventEmitter {
     init(name) {
         this._name = name;
 
-        return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            this._logger.debug('coordinator', 'Loading protocol');
+            protobuf.load(path.join(this._config.base_path, 'proto', 'coordinator.proto'), (error, root) => {
+                if (error)
+                    return reject(new WError(error, 'Coordinator.init()'));
+
+                try {
+                    this.proto = root;
+                    this.JoinNetworkRequest = this.proto.lookup('coordinator.JoinNetworkRequest');
+                    this.JoinNetworkResponse = this.proto.lookup('coordinator.JoinNetworkResponse');
+                    this.ClientMessage = this.proto.lookup('coordinator.ClientMessage');
+                    this.ServerMessage = this.proto.lookup('coordinator.ServerMessage');
+                    resolve();
+                } catch (error) {
+                    reject(new WError(error, 'Coordinator.init()'));
+                }
+            })
+        });
     }
 
     /**
@@ -149,6 +167,51 @@ class Coordinator extends EventEmitter {
                 this.server.close();
                 this.server = null;
             });
+    }
+
+    /**
+     * Send message
+     * @param {string} id                   Client ID
+     * @param {Buffer|null} data            Data to send
+     */
+    send(id, data) {
+        let client = this.clients.get(id);
+        if (!client || !client.socket || !client.wrapper)
+            return;
+
+        client.wrapper.send(data);
+    }
+
+
+    /**
+     * Send request and return response
+     * @param {string} address
+     * @param {Buffer} request
+     * @return {Promise}
+     */
+    request(address, request) {
+        return new Promise((resolve, reject) => {
+            let wrapper = new SocketWrapper();
+            let socket = net.connect(this.constructor.coordinatorPort, address, () => {
+                this._logger.debug('coordinator', 'Connected to remote host');
+                wrapper.attach(socket);
+                wrapper.on('receive', data => {
+                    this._logger.debug('coordinator', 'Got remote reply');
+                    resolve(data);
+                    socket.end();
+                });
+                wrapper.send(request);
+            });
+            socket.on('error', error => {
+                reject(error);
+                wrapper.destroy();
+                socket.destroy();
+            });
+            socket.on('close', () => {
+                wrapper.destroy();
+                socket.destroy();
+            });
+        });
     }
 
     /**
@@ -227,17 +290,17 @@ class Coordinator extends EventEmitter {
 
         let message;
         try {
-            message = this.parse(data);
+            message = this.ClientMessage.decode(data);
         } catch (error) {
             this._logger.error(`Coordinator protocol error: ${error.message}`);
             return false;
         }
 
         try {
-            this._logger.debug('coordinator', `Client message ${message.command}`);
-            switch(message.command) {
-                case 'clear-cache':
-                    this.emit('clear_cache', id, message);
+            this._logger.debug('coordinator', `Client message ${message.type} from ${client.socket.remoteAddress}:${client.socket.remotePort}`);
+            switch(message.type) {
+                case this.ClientMessage.Type.JOIN_NETWORK_REQUEST:
+                    this.emit('join_network_request', id, message);
                     break;
             }
         } catch (error) {

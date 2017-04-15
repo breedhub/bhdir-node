@@ -5,6 +5,8 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const uuid = require('uuid');
+const convert = require('xml-js');
 const EventEmitter = require('events');
 const WError = require('verror').WError;
 
@@ -27,6 +29,7 @@ class Syncthing extends EventEmitter {
         this.syncthing = null;
         this.node = null;
         this.roles = [];
+        this.folders = new Map();
 
         this._name = null;
         this._app = app;
@@ -208,8 +211,16 @@ class Syncthing extends EventEmitter {
                                     return;
 
                                 this.roles = info.value.roles || [];
+                            })
+                            .then(() => {
+                                return this._filer.lockRead('/var/lib/bhdir/.syncthing/config.xml')
+                                    .then(contents => {
+                                        let st = convert.xml2js(contents, { compact: true });
+                                        for (let folder of Array.isArray(st.configuration.folder) ? st.configuration.folder : [ st.configuration.folder ])
+                                            this.folders.set(folder._attributes.label, folder._attributes);
+                                    });
                             });
-                    });
+                    })
             })
             .then(() => {
                 this._logger.debug('syncthing', 'Starting the server');
@@ -271,22 +282,55 @@ class Syncthing extends EventEmitter {
     }
 
     /**
+     * Stop main binary
+     */
+    stopMainBinary() {
+        if (!this.syncthing || !this.node)
+            return Promise.resolve();
+
+        this.syncthing.kill();
+        return this.syncthing.promise;
+    }
+
+    /**
      * Create network
      * @param {string} name                     Name of the network
      * @return {Promise}
      */
     createNetwork(name) {
-        let now = Math.round(Date.now() / 1000);
+        let now = Math.round(Date.now() / 1000), deviceId;
         return this._filer.lockUpdate(
                 '/var/lib/bhdir/.config/node.json',
                 contents => {
                     let json = JSON.parse(contents);
                     json.id = '1';
+                    this.node = json;
                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                 }
             )
             .then(() => {
-                this.node.id = '1';
+                return this._filer.lockUpdate(
+                    '/var/lib/bhdir/.syncthing/config.xml',
+                    contents => {
+                        let st = convert.xml2js(contents, { compact: true });
+                        let attributes = {
+                            id: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
+                            label: ".core",
+                            path: "/var/lib/bhdir/.core/",
+                            type: "readwrite",
+                            rescanIntervalS: "60",
+                            ignorePerms: "false",
+                            autoNormalize: "true",
+                        };
+                        this.folders.set('.core', attributes);
+
+                        st.configuration.folder = this._initFolder(attributes);
+
+                        return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
+                    }
+                );
+            })
+            .then(() => {
                 return this._directory.set(
                     '.core:/home/created',
                     null,
@@ -327,6 +371,54 @@ class Syncthing extends EventEmitter {
             });
     }
 
+    /**
+     * Join network
+     * @param {string} address                      Coordinator address
+     * @param {string} token                        Join token
+     */
+    joinNetwork(address, token) {
+        if (!this.node || !this.node.id)
+            return Promise.resolve();
+
+        let request = this.coordinator.JoinNetworkRequest.create({
+            token: token,
+            deviceId: this.syncthing.node.device.id,
+            deviceName: this.syncthing.node.device.name,
+        });
+        let msg = this.coordinator.ClientMessage.create({
+            type: this.coordinator.ClientMessage.Type.JOIN_NETWORK_REQUEST,
+            messageId: uuid.v4(),
+            joinNetworkRequest: request,
+        });
+        let data = this.coordinator.ClientMessage.encode(msg).finish();
+        this._logger.debug('coordinator', `Sending JOIN REQUEST to ${address}`);
+        return this._coordinator.request(address, data)
+            .then(response => {
+                if (!response || !response.length)
+                    return;
+
+                let message;
+                try {
+                    message = this.ServerMessage.decode(response);
+                } catch (error) {
+                    this._logger.error(`Coordinator protocol error: ${error.message}`);
+                    return;
+                }
+
+                this._logger.debug('coordinator', `Response ${message.type} from ${address}`);
+                if (message.type === this.ClientMessage.Type.JOIN_NETWORK_RESPONSE && message.messageId === msg.messageId) {
+                    if (message.joinNetworkResponse.response !== this.coordinator.JoinNetworkResponse.Result.ACCEPTED)
+                        throw new Error('Join request rejected');
+
+                    return this.syncthing.syncTempFolder(
+                        message.joinNetworkResponse.folderId,
+                        '.core',
+                        message.joinNetworkResponse.deviceId,
+                        message.joinNetworkResponse.deviceName
+                    );
+                }
+            });
+    }
     /**
      * Create node
      * @return {Promise}                            Resolves to { id, token }
@@ -369,6 +461,51 @@ class Syncthing extends EventEmitter {
                     .then(() => {
                         return { id: nodeId, token: token };
                     });
+            });
+    }
+
+    /**
+     * Check and activate node join token
+     * @param {string} token                        Join token
+     * @return {Promise}                            Resolves to node id or null
+     */
+    activateJoinToken(token) {
+        if (!token || !token.length)
+            return Promise.resolve(null);
+
+        return this._directory.get(`.core:/home/nodes/by_token/${token}`)
+            .then(info => {
+                if (!info || !info.value)
+                    return null;
+
+                return this._directory.del(`.core:/home/nodes/by_token/${token}`)
+                    .then(() => {
+                        return info.value.node_id;
+                    });
+            });
+    }
+
+    /**
+     * Add device to a node
+     * @param {string|null} id                  Node ID
+     * @param {string} deviceId                 Device ID
+     * @param {string} deviceName               Device name
+     * @return {Promise}
+     */
+    addNodeDevice(id, deviceId, deviceName) {
+        if (!this.node || !this.node.id)
+            return Promise.resolve();
+
+        if (!id)
+            id = this.node.id;
+
+        return this._directory.get(`.core:/home/nodes/by_id/${id}`)
+            .then(info => {
+                if (!info || !info.value)
+                    return;
+
+                info.value.devices[deviceId] = deviceName;
+                return this._directory.set(`.core:/home/nodes/by_id/${id}`, info);
             });
     }
 
@@ -436,6 +573,99 @@ class Syncthing extends EventEmitter {
     }
 
     /**
+     * Temporary folder synchronization
+     * @param {string} folderId                 Folder ID
+     * @param {string} folderName               Folder name
+     * @param {string} deviceId                 Device ID
+     * @param {string} deviceName               Device name
+     * @return {Promise}
+     */
+    syncTempFolder(folderId, folderName, deviceId, deviceName) {
+        if (!this.node || !this.node.id)
+            return Promise.resolve();
+
+        return this._filer.lockUpdate(
+                '/var/lib/bhdir/.syncthing/config.xml',
+                contents => {
+                    let st = convert.xml2js(contents, { compact: true });
+
+                    let folders = [];
+                    let folderFound = false;
+                    for (let folder of Array.isArray(st.configuration.folder) ? st.configuration.folder : [ st.configuration.folder ]) {
+                        if (folder._attributes.id !== folderId)
+                            continue;
+
+                        folderFound = true;
+                        let oldDevices = Array.isArray(folder.device) ? folder.device : [ folder.device ];
+                        let newDevices = [];
+                        let found = false;
+                        for (let oldDevice of oldDevices) {
+                            if (oldDevice._attributes.id === deviceId) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            newDevices.push({
+                                _attributes: {
+                                    id: deviceId,
+                                    introducedBy: "",
+                                }
+                            });
+                        }
+                        folder.device = oldDevices.concat(newDevices);
+                        folders.push(folder);
+                    }
+                    if (!folderFound) {
+                        let attributes = {
+                            id: folderId,
+                            label: folderName,
+                            path: `/var/lib/bhdir/${folderName}/`,
+                            type: "readwrite",
+                            rescanIntervalS: "60",
+                            ignorePerms: "false",
+                            autoNormalize: "true",
+                        };
+                        this.folders.set(folderName, attributes);
+                        let folder = this._initFolder(attributes);
+                        folder.device.push({
+                            _attributes: {
+                                id: deviceId,
+                                introducedBy: "",
+                            }
+                        });
+                        folders.push(folder);
+                    }
+                    st.configuration.folder = folders;
+
+                    let oldDevices = Array.isArray(st.configuration.device) ? st.configuration.device : [ st.configuration.device ];
+                    let newDevices = [];
+                    let found = false;
+                    for (let device of oldDevices) {
+                        if (device._attributes.id === deviceId) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                        newDevices.push(this._initDevice(deviceId, deviceName));
+                    st.configuration.device = oldDevices.concat(newDevices);
+
+                    return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
+                }
+            )
+            .then(() => {
+                if (!this.syncthing)
+                    return;
+
+                return this.stopMainBinary()
+                    .then(() => {
+                        return this.startMainBinary();
+                    });
+            });
+    }
+
+    /**
      * Retrieve directory server
      * @return {Coordinator}
      */
@@ -455,6 +685,93 @@ class Syncthing extends EventEmitter {
             return this._coordinator_instance;
         this._coordinator_instance = this._app.get('servers').get('coordinator');
         return this._coordinator_instance;
+    }
+
+    /**
+     * Returns default folder object for config.xml
+     * @return {object}
+     */
+    _initFolder(attributes) {
+        return {
+            _attributes: attributes,
+            device: [
+                {
+                    _attributes: {
+                        id: this.node.device.id,
+                        introducedBy: "",
+                    }
+                }
+            ],
+            minDiskFreePct: {
+                _text: "1",
+            },
+            versioning: {},
+            copiers: {
+                _text: "0",
+            },
+            pullers: {
+                _text: "0",
+            },
+            hashers: {
+                _text: "0",
+            },
+            order: {
+                _text: "random",
+            },
+            ignoreDelete: {
+                _text: "false",
+            },
+            scanProgressIntervalS: {
+                _text: "0",
+            },
+            pullerSleepS: {
+                _text: "0",
+            },
+            pullerPauseS: {
+                _text: "0",
+            },
+            maxConflicts: {
+                _text: "-1",
+            },
+            disableSparseFiles: {
+                _text: "false",
+            },
+            disableTempIndexes: {
+                _text: "false",
+            },
+            fsync: {
+                _text: "false",
+            },
+            paused: {
+                _text: "false",
+            },
+            weakHashThresholdPct: {
+                _text: "25",
+            },
+        };
+    }
+
+    /**
+     * Returns default device object for config.xml
+     * @return {object}
+     */
+    _initDevice(id, name) {
+        return {
+            _attributes: {
+                id: id,
+                name: name,
+                compression: "metadata",
+                introducer: "false",
+                skipIntroductionRemovals: "false",
+                introducedBy: "",
+            },
+            address: {
+                _text: "dynamic",
+            },
+            paused: {
+                _text: "false",
+            },
+        };
     }
 }
 

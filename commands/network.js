@@ -71,6 +71,13 @@ class Network {
                 commandName = 'network-create';
                 commandArgs.push(args.targets[2]);
                 break;
+            case 'join':
+                if (args.targets.length < 4)
+                    return this._help.helpNetwork(argv);
+                commandName = 'network-join';
+                commandArgs.push(args.targets[2]);
+                commandArgs.push(args.targets[3]);
+                break;
             default:
                 return this._help.helpNetwork(argv);
         }
