@@ -652,7 +652,7 @@ class Syncthing extends EventEmitter {
                                 introducedBy: "",
                             }
                         });
-                        folders.push();
+                        folders.push(folder);
                     }
                     st.configuration.folder = folders;
 
