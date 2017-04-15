@@ -408,28 +408,30 @@ class Syncthing extends EventEmitter {
                 }
 
                 this._logger.debug('coordinator', `Response ${message.type} from ${address}`);
-                if (message.type === this._coordinator.ClientMessage.Type.JOIN_NETWORK_RESPONSE && message.messageId === msg.messageId) {
-                    if (message.joinNetworkResponse.response !== this._coordinator.JoinNetworkResponse.Result.ACCEPTED)
-                        throw new Error('Join request rejected');
-
-                    return this._filer.lockUpdate(
-                            '/var/lib/bhdir/.config/node.json',
-                            contents => {
-                                let json = JSON.parse(contents);
-                                json.id = message.joinNetworkResponse.nodeId;
-                                this.node = json;
-                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                            }
-                        )
-                        .then(() => {
-                            return this.syncTempFolder(
-                                message.joinNetworkResponse.folderId,
-                                '.core',
-                                message.joinNetworkResponse.deviceId,
-                                message.joinNetworkResponse.deviceName
-                            );
-                        })
+                if (message.type !== this._coordinator.ServerMessage.Type.JOIN_NETWORK_RESPONSE ||
+                    message.messageId === msg.messageId ||
+                    message.joinNetworkResponse.response !== this._coordinator.JoinNetworkResponse.Result.ACCEPTED)
+                {
+                    throw new Error('Join request rejected');
                 }
+
+                return this._filer.lockUpdate(
+                        '/var/lib/bhdir/.config/node.json',
+                        contents => {
+                            let json = JSON.parse(contents);
+                            json.id = message.joinNetworkResponse.nodeId;
+                            this.node = json;
+                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                        }
+                    )
+                    .then(() => {
+                        return this.syncTempFolder(
+                            message.joinNetworkResponse.folderId,
+                            '.core',
+                            message.joinNetworkResponse.deviceId,
+                            message.joinNetworkResponse.deviceName
+                        );
+                    })
             });
     }
     /**

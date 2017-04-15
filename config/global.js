@@ -33,7 +33,8 @@ module.exports = {
 
     // Loaded modules
     modules: [
-        'daemon'
+        'daemon',
+        'coordinator',
     ],
 
     // Servers

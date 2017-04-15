@@ -134,4 +134,4 @@ class JoinNetworkRequest {
     }
 }
 
-module.exports = ClearCache;
+module.exports = JoinNetworkRequest;
