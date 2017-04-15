@@ -36,7 +36,6 @@ class Directory extends EventEmitter {
         let info = {
             rootDir: '/var/lib/bhdir/.core',
             dataDir: '/var/lib/bhdir/.core/data',
-            stateDir: '/var/lib/bhdir/.core/state',
             dirMode: 0o770,
             fileMode: 0o660,
             user: 'root',
@@ -122,122 +121,40 @@ class Directory extends EventEmitter {
                     throw new Error('Could not read bhdir.conf');
                 }
 
-                let updateConf = false;
                 let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                for (let group of Object.keys(bhdirConfig)) {
+                    let index = group.indexOf(':directory');
+                    if (index === -1)
+                        continue;
 
-                if (bhdirConfig.directory) {
-                    this.rootDir = bhdirConfig.directory && bhdirConfig.directory.root;
-                    if (!this.rootDir)
-                        throw new Error('No root parameter in directory section of bhdir.conf');
-
-                    this.dataDir = path.join(this.rootDir, 'data');
-                    this.stateDir = path.join(this.rootDir, 'state');
-
-                    this.dirMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.dir_mode) || '770', 8);
-                    if (isNaN(this.dirMode))
-                        this.dirMode = null;
-                    this.fileMode = parseInt((bhdirConfig.directory && bhdirConfig.directory.file_mode) || '660', 8);
-                    if (isNaN(this.fileMode))
-                        this.fileMode = null;
-
-                    let user = (bhdirConfig.directory && bhdirConfig.directory.user) || 'root';
-                    let group = (bhdirConfig.directory && bhdirConfig.directory.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
-
-                    if (user === '999' || group === '999' || group === 'rslsync') { // TODO: Remove this
-                        if (!bhdirConfig.directory)
-                            bhdirConfig.directory = {};
-                        user = bhdirConfig.directory.user = 'rslsync';
-                        group = bhdirConfig.directory.group = 'bhdir';
+                    let name = group.substring(0, index);
+                    let info = {};
+                    info.rootDir = bhdirConfig[group].root;
+                    if (!info.rootDir) {
+                        this._logger.error(`No root parameter in ${name} directory section of bhdir.conf`);
+                        continue;
                     }
 
-                    bhdirConfig['sync:directory'] = bhdirConfig.directory;
-                    bhdirConfig['sync:directory'].default = true;
-                    delete bhdirConfig.directory;
-                    updateConf = true;
-                } else {
-                    for (let group of Object.keys(bhdirConfig)) {
-                        let index = group.indexOf(':directory');
-                        if (index === -1)
-                            continue;
+                    info.dataDir = path.join(info.rootDir, 'data');
 
-                        let name = group.substring(0, index);
-                        let info = {};
-                        info.rootDir = bhdirConfig[group].root;
-                        if (!info.rootDir) {
-                            this._logger.error(`No root parameter in ${name} directory section of bhdir.conf`);
-                            continue;
-                        }
+                    info.dirMode = parseInt(bhdirConfig[group].dir_mode || '770', 8);
+                    if (isNaN(info.dirMode))
+                        info.dirMode = null;
+                    info.fileMode = parseInt(bhdirConfig[group].file_mode || '660', 8);
+                    if (isNaN(info.fileMode))
+                        info.fileMode = null;
 
-                        info.dataDir = path.join(info.rootDir, 'data');
-                        info.stateDir = path.join(info.rootDir, 'state');
+                    info.user = bhdirConfig[group].user || 'root';
+                    info.group = bhdirConfig[group].group || (os.platform() === 'freebsd' ? 'wheel' : 'root');
 
-                        info.dirMode = parseInt(bhdirConfig[group].dir_mode || '770', 8);
-                        if (isNaN(info.dirMode))
-                            info.dirMode = null;
-                        info.fileMode = parseInt(bhdirConfig[group].file_mode || '660', 8);
-                        if (isNaN(info.fileMode))
-                            info.fileMode = null;
-
-                        info.user = bhdirConfig[group].user || 'root';
-                        info.group = bhdirConfig[group].group || (os.platform() === 'freebsd' ? 'wheel' : 'root');
-
-                        this.directories.set(name, info);
-                        if (bhdirConfig[group].default === true || bhdirConfig[group].default === 'yes')
-                            this.default = name;
-                    }
-                }
-
-                if ((bhdirConfig.daemon && bhdirConfig.daemon.log_level) !== 'debug') {
-                    if (!bhdirConfig.daemon)
-                        bhdirConfig.daemon = {};
-                    bhdirConfig.daemon.log_level = 'debug';
-                    updateConf = true;
-                }
-
-                this.syncUser = bhdirConfig.resilio && bhdirConfig.resilio.user;
-                this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
-                if (!this.syncUser) {
-                    if (!bhdirConfig.resilio)
-                        bhdirConfig.resilio = {};
-                    bhdirConfig.resilio.user = 'rslsync';
-                    updateConf = true;
-                }
-                if (!this.syncLog) {
-                    if (!bhdirConfig.resilio)
-                        bhdirConfig.resilio = {};
-                    bhdirConfig.resilio.sync_log = '/var/lib/resilio-sync/sync.log';
-                    updateConf = true;
+                    this.directories.set(name, info);
+                    if (bhdirConfig[group].default === true || bhdirConfig[group].default === 'yes')
+                        this.default = name;
                 }
 
                 this.socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '0', 8);
                 this.socketUser = bhdirConfig.socket && bhdirConfig.socket.user;
                 this.socketGroup = bhdirConfig.socket && bhdirConfig.socket.group;
-                if (!this.socketMode || isNaN(this.socketMode)) {
-                    if (!bhdirConfig.socket)
-                        bhdirConfig.socket = {};
-                    bhdirConfig.socket.mode = '660';
-                    updateConf = true;
-                }
-                if (!this.socketUser) {
-                    if (!bhdirConfig.socket)
-                        bhdirConfig.socket = {};
-                    bhdirConfig.socket.user = 'root';
-                    updateConf = true;
-                }
-                if (!this.socketGroup) {
-                    if (!bhdirConfig.socket)
-                        bhdirConfig.socket = {};
-                    bhdirConfig.socket.group = 'bhdir';
-                    updateConf = true;
-                }
-
-                if (updateConf) {
-                    fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
-                    return this._app.info('Settings updated - restarting\n')
-                        .then(() => {
-                            process.exit(255);
-                        });
-                }
 
                 return Array.from(this.directories.keys()).reduce(
                     (prev, cur) => {
@@ -313,78 +230,6 @@ class Directory extends EventEmitter {
                 } else {
                     this.socketGid = parseInt(groupDb[2]);
                 }
-            })
-            .then(() => {
-                return Array.from(this.directories.keys()).reduce(
-                    (prev, cur) => {
-                        let info = this.directories.get(cur);
-                        info.enabled = false;
-                        if (!info.user || !info.group)
-                            return;
-
-                        return prev.then(() => {
-                                return this._filer.createDirectory(
-                                    info.rootDir,
-                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._filer.createDirectory(
-                                    info.dataDir,
-                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._filer.createDirectory(
-                                    info.stateDir,
-                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._filer.createFile(
-                                    path.join(info.dataDir, '.bhdir.json'),
-                                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
-                            })
-                            .then(() => {
-                                return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
-                            })
-                            .then(() => {
-                                return this._filer.lockUpdate(
-                                    path.join(info.dataDir, '.bhdir.json'),
-                                    contents => {
-                                        let json;
-                                        try {
-                                            json = JSON.parse(contents);
-                                            if (typeof json !== 'object')
-                                                return Promise.reject(new Error(`.bhdir.json of ${cur} is damaged`));
-                                        } catch (error) {
-                                            json = {};
-                                        }
-
-                                        if (!json.directory)
-                                            json.directory = {};
-                                        if (!json.directory.format)
-                                            json.directory.format = 2;
-                                        if (!json.directory.upgrading)
-                                            json.directory.upgrading = false;
-
-                                        info.enabled = (json.directory.format === 2);
-
-                                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                    }
-                                    )
-                                    .then(() => {
-                                        if (!info.enabled)
-                                            this._logger.info(`Unsupported directory format of ${cur} - ignoring...`);
-                                    });
-                            });
-                    },
-                    Promise.resolve()
-                );
             });
     }
 
@@ -514,6 +359,61 @@ class Directory extends EventEmitter {
 
             resolve([ dir, name ]);
         });
+    }
+
+    /**
+     * Create directory
+     * @param {string} repo
+     * @return {Promise}
+     */
+    create(repo) {
+        let info = this.directories.get(repo);
+        if (!info)
+            return Promise.reject(new Error(`Unknown directory: ${repo}`));
+
+        if (!info.user || !info.group)
+            return Promise.reject(new Error(`Invalid owner or group for directory: ${repo}`));
+
+        return this._filer.createDirectory(
+                info.dataDir,
+                { mode: info.dirMode, uid: info.uid, gid: info.gid }
+            )
+            .then(() => {
+                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
+            })
+            .then(() => {
+                return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
+            })
+            .then(() => {
+                return this._filer.lockUpdate(
+                    path.join(info.dataDir, '.bhdir.json'),
+                    contents => {
+                        let json;
+                        try {
+                            json = JSON.parse(contents);
+                            if (typeof json !== 'object')
+                                return Promise.reject(new Error(`.bhdir.json of ${repo} is damaged`));
+                        } catch (error) {
+                            json = {};
+                        }
+
+                        if (!json.directory)
+                            json.directory = {};
+                        if (!json.directory.format)
+                            json.directory.format = 2;
+                        if (!json.directory.upgrading)
+                            json.directory.upgrading = false;
+
+                        info.enabled = (json.directory.format === 2);
+
+                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                    }
+                    )
+                    .then(() => {
+                        if (!info.enabled)
+                            this._logger.info(`Unsupported directory format of ${repo} - ignoring...`);
+                    });
+            });
     }
 
     /**

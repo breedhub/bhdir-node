@@ -302,75 +302,78 @@ class Syncthing extends EventEmitter {
     createNetwork(name) {
         let now = Math.round(Date.now() / 1000), deviceId;
         return this._filer.lockUpdate(
-                '/var/lib/bhdir/.config/node.json',
+            '/var/lib/bhdir/.config/node.json',
+            contents => {
+                let json = JSON.parse(contents);
+                json.id = '1';
+                this.node = json;
+                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+            }
+        )
+        .then(() => {
+            return this._filer.lockUpdate(
+                '/var/lib/bhdir/.syncthing/config.xml',
                 contents => {
-                    let json = JSON.parse(contents);
-                    json.id = '1';
-                    this.node = json;
-                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                    let st = convert.xml2js(contents, { compact: true });
+                    let attributes = {
+                        id: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
+                        label: ".core",
+                        path: "/var/lib/bhdir/.core/",
+                        type: "readwrite",
+                        rescanIntervalS: "60",
+                        ignorePerms: "false",
+                        autoNormalize: "true",
+                    };
+                    this.folders.set('.core', attributes);
+
+                    st.configuration.folder = this._initFolder(attributes);
+
+                    return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
                 }
-            )
-            .then(() => {
-                return this._filer.lockUpdate(
-                    '/var/lib/bhdir/.syncthing/config.xml',
-                    contents => {
-                        let st = convert.xml2js(contents, { compact: true });
-                        let attributes = {
-                            id: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
-                            label: ".core",
-                            path: "/var/lib/bhdir/.core/",
-                            type: "readwrite",
-                            rescanIntervalS: "60",
-                            ignorePerms: "false",
-                            autoNormalize: "true",
-                        };
-                        this.folders.set('.core', attributes);
-
-                        st.configuration.folder = this._initFolder(attributes);
-
-                        return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
-                    }
-                );
-            })
-            .then(() => {
-                return this._directory.set(
-                    '.core:/home/created',
-                    null,
-                    now
-                );
-            })
-            .then(() => {
-                return this._directory.set(
-                    '.core:/home/name',
-                    null,
-                    name
-                );
-            })
-            .then(() => {
-                return this._directory.set(
-                    '.core:/home/last_id',
-                    null,
-                    '1'
-                );
-            })
-            .then(() => {
-                return this._directory.set(
-                    '.core:/home/nodes/by_id/1',
-                    null,
-                    {
-                        created: now,
-                        roles: [ 'coordinator' ],
-                        devices: {
-                            [this.node.device.id]: {
-                                name: this.node.device.name,
-                            }
-                        },
-                    }
-                );
-            })
-            .then(() => {
-                return this._coordinator.startListening();
-            });
+            );
+        })
+        .then(() => {
+            return this._directory.create('.core');
+        })
+        .then(() => {
+            return this._directory.set(
+                '.core:/home/created',
+                null,
+                now
+            );
+        })
+        .then(() => {
+            return this._directory.set(
+                '.core:/home/name',
+                null,
+                name
+            );
+        })
+        .then(() => {
+            return this._directory.set(
+                '.core:/home/last_id',
+                null,
+                '1'
+            );
+        })
+        .then(() => {
+            return this._directory.set(
+                '.core:/home/nodes/by_id/1',
+                null,
+                {
+                    created: now,
+                    roles: [ 'coordinator' ],
+                    devices: {
+                        [this.node.device.id]: {
+                            name: this.node.device.name,
+                        }
+                    },
+                }
+            );
+        })
+        .then(() => {
+            return this._coordinator.startListening();
+        });
     }
 
     /**
