@@ -81,7 +81,7 @@ class Exists {
                 if (!repo || !filename)
                     return reply(true, false);
 
-                let info = this.directory.directories.get(repo);
+                let info = this.directory.folders.get(repo);
                 let exists;
                 try {
                     fs.accessSync(path.join(info.dataDir, filename), fs.constants.F_OK);

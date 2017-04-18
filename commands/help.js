@@ -134,7 +134,7 @@ class Help {
      */
     helpNetwork(argv) {
         return this._app.info(
-                'Usage:\tbhdirctl network create <name>\n\n' +
+                'Usage:\tbhdirctl network create\n\n' +
                 '\tCreates new network. Current node joins the network automatically and is assigned coordinator role'
             )
             .then(() => {

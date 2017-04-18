@@ -61,11 +61,6 @@ class NetworkCreate {
             this.daemon.send(id, data);
         };
 
-        if (message.args.length !== 1)
-            return reply(false, 'Invalid arguments list');
-
-        let name = message.args[0];
-
         new Promise((resolve, reject) => {
                 if (!this.syncthing.node)
                     return reject(new Error('bhdir is not installed'));
@@ -78,7 +73,7 @@ class NetworkCreate {
                 }
             })
             .then(() => {
-                return this.syncthing.createNetwork(name);
+                return this.syncthing.createNetwork();
             })
             .then(() => {
                 reply(true);

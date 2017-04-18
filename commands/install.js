@@ -185,6 +185,14 @@ class Install {
                     })
                     .then(() => {
                         try {
+                            fs.accessSync('/var/lib/bhdir/.config', fs.constants.F_OK);
+                            return this._filer.remove('/var/lib/bhdir/.config');
+                        } catch (error) {
+                            // do nothing
+                        }
+                    })
+                    .then(() => {
+                        try {
                             fs.accessSync('/var/lib/bhdir/.core', fs.constants.F_OK);
                             return this._filer.remove('/var/lib/bhdir/.core');
                         } catch (error) {
@@ -277,27 +285,6 @@ class Install {
                                 deviceId = st.configuration.device._attributes.id;
                                 deviceName = st.configuration.device._attributes.name;
                                 return Promise.resolve(convert.js2xml(st, {compact: true, spaces: 4}) + '\n');
-                            }
-                        );
-                    })
-                    .then(() => {
-                        return this._filer.lockUpdate(
-                            '/var/lib/bhdir/.config/node.json',
-                            contents => {
-                                let json;
-                                try {
-                                    json = JSON.parse(contents);
-                                } catch (error) {
-                                    json = {};
-                                }
-
-                                json.id = null;
-                                json.device = {
-                                    id: deviceId,
-                                    name: deviceName,
-                                };
-
-                                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                             }
                         );
                     });

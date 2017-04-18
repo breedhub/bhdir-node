@@ -74,10 +74,9 @@ class Index extends EventEmitter {
 
         return Promise.resolve()
             .then(() => {
-                let promises = [];
-                for (let [ directory, info ] of this._directory.directories) {
+                for (let [ folder, info ] of this._directory.folders) {
                     this.indexes.set(
-                        directory,
+                        folder,
                         {
                             enabled: info.enabled,
                             dataDir: info.dataDir,
@@ -93,21 +92,7 @@ class Index extends EventEmitter {
                             loading: false,
                         }
                     );
-                    if (info.enabled) {
-                        let exists;
-                        try {
-                            fs.accessSync(path.join(info.dataDir, '.index.1'), fs.constants.F_OK);
-                            exists = true;
-                        } catch (error) {
-                            exists = false;
-                        }
-                        if (!exists)
-                            promises.push(this.build(directory));
-                    }
                 }
-
-                if (promises.length)
-                    return Promise.all(promises);
             });
     }
 
@@ -142,22 +127,22 @@ class Index extends EventEmitter {
 
     /**
      * Build index
-     * @param {string} directory                Directory name
+     * @param {string} folder                   Folder name
      * @return {Promise}
      */
-    build(directory) {
-        let info = this.indexes.get(directory);
+    build(folder) {
+        let info = this.indexes.get(folder);
         if (!info || !info.enabled)
-            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+            return Promise.reject(new Error(`Unknown folder or folder is disabled: ${folder}`));
 
-        this._logger.debug('index', `Building index of ${directory}`);
+        this._logger.debug('index', `Building index of ${folder}`);
 
         let tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
         let messages = [];
         return this._loadDir(info.dataDir, '/', tree, messages)
             .then(() => {
                 info.tree = tree;
-                return this.save(directory);
+                return this.save(folder);
             })
             .then(() => {
                 return messages;
@@ -166,13 +151,13 @@ class Index extends EventEmitter {
 
     /**
      * Save index
-     * @param {string} directory                Directory name
+     * @param {string} folder                   Folder name
      * @return {Promise}
      */
-    save(directory) {
-        let info = this.indexes.get(directory);
+    save(folder) {
+        let info = this.indexes.get(folder);
         if (!info || !info.enabled)
-            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+            return Promise.reject(new Error(`Unknown folder or folder is disabled: ${folder}`));
 
         if (info.loading || info.saving)
             return Promise.resolve();
@@ -180,7 +165,7 @@ class Index extends EventEmitter {
         if (!info.tree.tree.data.length)
             return Promise.resolve();
 
-        this._logger.debug('index', `Saving index of ${directory}`);
+        this._logger.debug('index', `Saving index of ${folder}`);
         info.saving = true;
         info.needSave = false;
 
@@ -191,7 +176,7 @@ class Index extends EventEmitter {
             hash.update(tree);
         } catch (error) {
             info.saving = false;
-            return Promise.reject(error);
+            return Promise.reject(new WError(error, `Index.save(): ${folder}`));
         }
 
         return this._filer.lockWriteBuffer(
@@ -203,7 +188,7 @@ class Index extends EventEmitter {
                 () => {
                     info.saving = false;
                     if (info.needSave)
-                        return this.save(directory);
+                        return this.save(folder);
                 },
                 error => {
                     info.saving = false;
@@ -214,18 +199,18 @@ class Index extends EventEmitter {
 
     /**
      * Load index
-     * @param {string} directory                Directory name
+     * @param {string} folder                   Folder name
      * @return {Promise}
      */
-    load(directory) {
-        let info = this.indexes.get(directory);
+    load(folder) {
+        let info = this.indexes.get(folder);
         if (!info || !info.enabled)
-            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+            return Promise.reject(new Error(`Unknown folder or folder is disabled: ${folder}`));
 
         if (info.loading || info.saving)
             return Promise.resolve();
 
-        this._logger.debug('index', `Loading index of ${directory}`);
+        this._logger.debug('index', `Loading index of ${folder}`);
         info.loading = true;
         info.needLoad = false;
 
@@ -237,7 +222,7 @@ class Index extends EventEmitter {
                 let hash = crypto.createHash('md5');
                 hash.update(treeBuffer);
                 if (!hashBuffer.equals(hash.digest()))
-                    throw new Error('Index has wrong checksum');
+                    throw new Error(`Index of ${folder} has wrong checksum`);
 
                 let node = this._deserialize({ tree: info.tree, buffer: treeBuffer, offset: 0 }, null);
                 if (node)
@@ -252,7 +237,7 @@ class Index extends EventEmitter {
                         }
                     } else {
                         confirm.counter = 0;
-                        this._logger.debug('index', `Id ${id} missed from index of ${directory}`);
+                        this._logger.debug('index', `Id ${id} is missing from index of ${folder}`);
                         this.insert(confirm.type, id, confirm.record);
                     }
                 }
@@ -261,7 +246,7 @@ class Index extends EventEmitter {
                 () => {
                     info.loading = false;
                     if (info.needLoad)
-                        return this.load(directory);
+                        return this.load(folder);
                 },
                 error => {
                     info.loading = false;
@@ -271,7 +256,10 @@ class Index extends EventEmitter {
                     }
                     throw error;
                 }
-            );
+            )
+            .catch(error => {
+                throw new WError(error, `Index.load(): ${folder}`);
+            });
     }
 
     /**
@@ -282,7 +270,7 @@ class Index extends EventEmitter {
     search(id) {
         this._logger.debug('index', `Searching for ${id}`);
 
-        for (let [ directory, info ] of this.indexes) {
+        for (let [ folder, info ] of this.indexes) {
             let search = info.tree.search(id);
             if (!search.length)
                 continue;
@@ -291,7 +279,7 @@ class Index extends EventEmitter {
 
             if (!search[0].data)
                 search[0].data = JSON.parse(search[0].buffer);
-            return Object.assign({ directory: directory }, search[0].data);
+            return Object.assign({ folder: folder }, search[0].data);
         }
 
         return null;
@@ -304,14 +292,14 @@ class Index extends EventEmitter {
      * @param {object} record                   Description
      */
     insert(type, id, record) {
-        let info = this.indexes.get(record.directory);
+        let info = this.indexes.get(record.folder);
         if (!info || !info.enabled)
-            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${record.directory}`));
+            return Promise.reject(new Error(`Unknown folder or folder is disabled: ${record.folder}`));
 
         if (info.tree.search(id).length)
             return Promise.resolve();
 
-        this._logger.debug('index', `Inserting ${type} of ${record.directory}:${record.path} as ${id}`);
+        this._logger.debug('index', `Inserting ${type} of ${record.folder}:${record.path} as ${id}`);
         let data;
         switch (type) {
             case 'variable':
@@ -360,7 +348,7 @@ class Index extends EventEmitter {
      * @param {bignum} id                       ID
      */
     del(id) {
-        for (let [ directory, info ] of this.indexes) {
+        for (let [ folder, info ] of this.indexes) {
             let search = info.tree.search(id);
             if (search.length) {
                 this._logger.debug('index', `Deleting ${id}`);
@@ -375,11 +363,11 @@ class Index extends EventEmitter {
      * Save the trees
      */
     onSaveTimer() {
-        for (let [ directory, info ] of this.indexes) {
+        for (let [ folder, info ] of this.indexes) {
             if (!info.needSave)
                 continue;
 
-            this.save(directory)
+            this.save(folder)
                 .catch(error => {
                     this._logger.error(error);
                 });

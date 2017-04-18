@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const uuid = require('uuid');
 const convert = require('xml-js');
+const RestClient = require('node-rest-client').Client;
 const EventEmitter = require('events');
 const WError = require('verror').WError;
 
@@ -26,11 +27,14 @@ class Syncthing extends EventEmitter {
     constructor(app, config, logger, runner, filer, util) {
         super();
 
-        this.syncthing = null;
-        this.node = null;
+        this.nodeId = null;
         this.roles = [];
-        this.folders = new Map();
+        this.deviceId = null;
+        this.deviceName = null;
 
+        this.syncthing = null;
+
+        this._apiKey = "";
         this._name = null;
         this._app = app;
         this._config = config;
@@ -94,6 +98,22 @@ class Syncthing extends EventEmitter {
      */
     static get apiPort() {
         return '42001';
+    }
+
+    /**
+     * API retry attempts
+     * @type {number}
+     */
+    static get apiRetryAttempts() {
+        return 20;
+    }
+
+    /**
+     * API retry interval
+     * @type {number}
+     */
+    static get apiRetryInterval() {
+        return 500; // ms
     }
 
     /**
@@ -190,41 +210,6 @@ class Syncthing extends EventEmitter {
                 Promise.resolve()
             )
             .then(() => {
-                try {
-                    fs.accessSync('/var/lib/bhdir/.config/node.json', fs.constants.F_OK);
-                } catch (error) {
-                    return;
-                }
-
-                return this._filer.lockRead('/var/lib/bhdir/.config/node.json')
-                    .then(contents => {
-                        this.node = JSON.parse(contents);
-                        if (!this.node.device || !this.node.device.id || !this.node.device.name) {
-                            this.node = null;
-                            return;
-                        }
-
-                        if (!this.node.id)
-                            return;
-
-                        return this._directory.get(`.core:/home/nodes/by_id/${this.node.id}`)
-                            .then(info => {
-                                if (!info || !info.value)
-                                    return;
-
-                                this.roles = info.value.roles || [];
-                            })
-                            .then(() => {
-                                return this._filer.lockRead('/var/lib/bhdir/.syncthing/config.xml')
-                                    .then(contents => {
-                                        let st = convert.xml2js(contents, { compact: true });
-                                        for (let folder of Array.isArray(st.configuration.folder) ? st.configuration.folder : [ st.configuration.folder ])
-                                            this.folders.set(folder._attributes.label, folder._attributes);
-                                    });
-                            });
-                    })
-            })
-            .then(() => {
                 this._logger.debug('syncthing', 'Starting the server');
                 return this.startMainBinary();
             });
@@ -234,10 +219,22 @@ class Syncthing extends EventEmitter {
      * Start main binary
      */
     startMainBinary() {
-        if (this.syncthing || !this.node)
+        if (this.syncthing)
             return Promise.resolve();
 
-        return this.constructor.getMainBinary()
+        try {
+            fs.accessSync('/var/lib/bhdir/.syncthing/config.xml', fs.constants.F_OK);
+        } catch (error) {
+            return Promise.resolve();
+        }
+
+        return this._filer.lockRead('/var/lib/bhdir/.syncthing/config.xml')
+            .then(contents => {
+                let st = convert.xml2js(contents, {compact: true});
+                this._apiKey = st.configuration.gui.apikey._text;
+
+                return this.constructor.getMainBinary();
+            })
             .then(syncthing => {
                 if (!syncthing)
                     throw new Error('No syncthing found');
@@ -280,6 +277,23 @@ class Syncthing extends EventEmitter {
                             this._logger.error(`Syncthing main binary error: ${error.message}`);
                         }
                     );
+
+                return this.apiGetStatus()
+                    .then(status => {
+                        this.deviceId = status.myID;
+                        this.deviceName = null;
+
+                        return this.apiGetConfig();
+                    })
+                    .then(config => {
+                        for (let device of config.devices) {
+                            if (device.deviceID !== this.deviceId)
+                                continue;
+
+                            this.deviceName = device.name;
+                            break;
+                        }
+                    });
             });
     }
 
@@ -287,7 +301,7 @@ class Syncthing extends EventEmitter {
      * Stop main binary
      */
     stopMainBinary() {
-        if (!this.syncthing || !this.node)
+        if (!this.syncthing)
             return Promise.resolve();
 
         this.syncthing.kill();
@@ -296,84 +310,78 @@ class Syncthing extends EventEmitter {
 
     /**
      * Create network
-     * @param {string} name                     Name of the network
      * @return {Promise}
      */
-    createNetwork(name) {
-        let now = Math.round(Date.now() / 1000), deviceId;
-        return this._filer.lockUpdate(
-            '/var/lib/bhdir/.config/node.json',
-            contents => {
-                let json = JSON.parse(contents);
-                json.id = '1';
-                this.node = json;
-                return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-            }
-        )
-        .then(() => {
-            return this._filer.lockUpdate(
-                '/var/lib/bhdir/.syncthing/config.xml',
-                contents => {
-                    let st = convert.xml2js(contents, { compact: true });
-                    let attributes = {
-                        id: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
-                        label: ".core",
-                        path: "/var/lib/bhdir/.core/",
-                        type: "readwrite",
-                        rescanIntervalS: "60",
-                        ignorePerms: "false",
-                        autoNormalize: "true",
-                    };
-                    this.folders.set('.core', attributes);
+    createNetwork() {
+        if (!this.deviceId)
+            return Promise.resolve();
 
-                    st.configuration.folder = this._initFolder(attributes);
+        let now = Math.round(Date.now() / 1000);
+        this.nodeId = '1';
+        this.roles = [ 'coordinator' ];
 
-                    return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
-                }
-            );
-        })
-        .then(() => {
-            return this._directory.create('.core');
-        })
-        .then(() => {
-            return this._directory.set(
-                '.core:/home/created',
-                null,
-                now
-            );
-        })
-        .then(() => {
-            return this._directory.set(
-                '.core:/home/name',
-                null,
-                name
-            );
-        })
-        .then(() => {
-            return this._directory.set(
-                '.core:/home/last_id',
-                null,
-                '1'
-            );
-        })
-        .then(() => {
-            return this._directory.set(
-                '.core:/home/nodes/by_id/1',
-                null,
-                {
-                    created: now,
-                    roles: [ 'coordinator' ],
-                    devices: {
-                        [this.node.device.id]: {
-                            name: this.node.device.name,
-                        }
-                    },
-                }
-            );
-        })
-        .then(() => {
-            return this._coordinator.startListening();
-        });
+        return this._directory.set('.config:/node/id', null, this.nodeId)
+            .then(() => {
+                let info = this._directory.folders.get('.core');
+                if (!info)
+                    throw new Error('Core folder not defined');
+                if (info.enabled)
+                    throw new Error('Core folder already exists');
+
+                return this._directory.create('.core')
+                    .then(() => {
+                        return this._filer.lockUpdate(
+                            '/var/lib/bhdir/.syncthing/config.xml',
+                            contents => {
+                                let st = convert.xml2js(contents, { compact: true });
+                                let attributes = {
+                                    id: this._util.getRandomString(32, { lower: true, upper: true, digits: true, special: false }),
+                                    label: ".core",
+                                    path: info.rootDir,
+                                    type: "readwrite",
+                                    rescanIntervalS: "60",
+                                    ignorePerms: "false",
+                                    autoNormalize: "true",
+                                };
+                                st.configuration.folder = this._initFolder(attributes);
+
+                                return Promise.resolve(convert.js2xml(st, { compact: true, spaces: 4 }) + '\n');
+                            }
+                        );
+                    });
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/created',
+                    null,
+                    now
+                );
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/last_id',
+                    null,
+                    '1'
+                );
+            })
+            .then(() => {
+                return this._directory.set(
+                    '.core:/home/nodes/by_id/1',
+                    null,
+                    {
+                        created: now,
+                        roles: this.roles,
+                        devices: {
+                            [this.deviceId]: {
+                                name: this.deviceName,
+                            }
+                        },
+                    }
+                );
+            })
+            .then(() => {
+                return this._coordinator.startListening();
+            });
     }
 
     /**
@@ -382,13 +390,13 @@ class Syncthing extends EventEmitter {
      * @param {string} token                        Join token
      */
     joinNetwork(address, token) {
-        if (!this.node || this.node.id)
+        if (this.nodeId || !this.deviceId)
             return Promise.resolve();
 
         let request = this._coordinator.JoinNetworkRequest.create({
             token: token,
-            deviceId: this.node.device.id,
-            deviceName: this.node.device.name,
+            deviceId: this.deviceId,
+            deviceName: this.deviceName,
         });
         let msg = this._coordinator.ClientMessage.create({
             type: this._coordinator.ClientMessage.Type.JOIN_NETWORK_REQUEST,
@@ -418,15 +426,8 @@ class Syncthing extends EventEmitter {
                     throw new Error('Join request rejected');
                 }
 
-                return this._filer.lockUpdate(
-                        '/var/lib/bhdir/.config/node.json',
-                        contents => {
-                            let json = JSON.parse(contents);
-                            json.id = message.joinNetworkResponse.nodeId;
-                            this.node = json;
-                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                        }
-                    )
+                this.nodeId = message.joinNetworkResponse.nodeId;
+                return this._directory.set('.config:/node/id', null, this.nodeId)
                     .then(() => {
                         return this.syncTempFolder(
                             message.joinNetworkResponse.folderId,
@@ -437,6 +438,7 @@ class Syncthing extends EventEmitter {
                     })
             });
     }
+
     /**
      * Create node
      * @return {Promise}                            Resolves to { id, token }
@@ -644,7 +646,6 @@ class Syncthing extends EventEmitter {
                             ignorePerms: "false",
                             autoNormalize: "true",
                         };
-                        this.folders.set(folderName, attributes);
                         let folder = this._initFolder(attributes);
                         folder.device.push({
                             _attributes: {
@@ -683,6 +684,39 @@ class Syncthing extends EventEmitter {
             });
     }
 
+    apiGetStatus() {
+        return this._apiRequest('GET', '/rest/system/status');
+    }
+
+    apiGetConfig() {
+        return this._apiRequest('GET', '/rest/system/config');
+    }
+
+    _apiRequest(method, url) {
+        url = 'http://' + this.constructor.apiAddress + ':' + this.constructor.apiPort + url;
+        return new Promise((resolve, reject) => {
+            let counter = 0;
+            let retry = () => {
+                if (++counter >= this.constructor.apiRetryAttempts)
+                    return reject(new Error('Maximum retries reached for API request'));
+
+                let client = new RestClient();
+                client.on('error', error => {
+                    reject(error);
+                });
+                client[method.toLowerCase()](url, { headers: { 'X-API-Key': this._apiKey } }, (data, response) => {
+                    if (response.statusCode !== 200 && response.statusCode !== 304)
+                        return reject(new Error(`Could not access the API: ${response.statusCode}`));
+
+                    resolve(data);
+                }).on('error', error => {
+                    setTimeout(() => { retry(); }, this.constructor.apiRetryInterval)
+                });
+            }
+            retry();
+        });
+    }
+
     /**
      * Retrieve directory server
      * @return {Coordinator}
@@ -715,7 +749,7 @@ class Syncthing extends EventEmitter {
             device: [
                 {
                     _attributes: {
-                        id: this.node.device.id,
+                        id: this.deviceId,
                         introducedBy: "",
                     }
                 }

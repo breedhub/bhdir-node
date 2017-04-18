@@ -66,10 +66,7 @@ class Network {
         let sub = args.targets[1];
         switch (sub) {
             case 'create':
-                if (args.targets.length < 3)
-                    return this._help.helpNetwork(argv);
                 commandName = 'network-create';
-                commandArgs.push(args.targets[2]);
                 break;
             case 'join':
                 if (args.targets.length < 4)
