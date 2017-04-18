@@ -2,9 +2,9 @@ syntax = "proto3";
 package coordinator;
 
 message JoinNetworkRequest {
-    required string token = 1;
-    required string device_id = 2;
-    required string device_name = 3;
+    string token = 1;
+    string device_id = 2;
+    string device_name = 3;
 }
 
 message JoinNetworkResponse {
@@ -12,27 +12,27 @@ message JoinNetworkResponse {
         ACCEPTED = 0;
         REJECTED = 1;
     }
-    required Result response = 1;
-    optional string node_id = 2;
-    optional string device_id = 3;
-    optional string device_name = 4;
-    optional string folder_id = 5;
+    Result response = 1;
+    string node_id = 2;
+    string device_id = 3;
+    string device_name = 4;
+    string folder_id = 5;
 }
 
 message ClientMessage {
     enum Type {
         JOIN_NETWORK_REQUEST = 10;
     }
-    required Type type = 1;
-    optional string message_id = 2;
-    optional JoinNetworkRequest join_network_request = 100;
+    Type type = 1;
+    string message_id = 2;
+    JoinNetworkRequest join_network_request = 100;
 }
 
 message ServerMessage {
     enum Type {
         JOIN_NETWORK_RESPONSE = 10;
     }
-    required Type type = 1;
-    optional string message_id = 2;
-    optional JoinNetworkResponse join_network_response = 100;
+    Type type = 1;
+    string message_id = 2;
+    JoinNetworkResponse join_network_response = 100;
 }
