@@ -21,6 +21,7 @@ message JoinNetworkResponse {
 
 message ClientMessage {
     enum Type {
+        ALIVE = 0;
         JOIN_NETWORK_REQUEST = 10;
     }
     Type type = 1;
@@ -30,6 +31,7 @@ message ClientMessage {
 
 message ServerMessage {
     enum Type {
+        ALIVE = 0;
         JOIN_NETWORK_RESPONSE = 10;
     }
     Type type = 1;
