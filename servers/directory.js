@@ -505,7 +505,7 @@ class Directory extends EventEmitter {
             })
             .then(([ repo, filename ]) => {
                 if (!repo || !filename)
-                    return;
+                    return [ false, null ];
 
                 variable = `${repo}:${filename}`;
 
@@ -533,7 +533,7 @@ class Directory extends EventEmitter {
                                 this._logger.debug('directory', `Wait on ${variable} timeout: ${timeout}`);
                                 resolve([ timeout, value ]);
                             };
-                            info.handlers.add(cb);
+                            waiting.handlers.add(cb);
                             if (timeout)
                                 setTimeout(() => { cb(true, info.value); }, timeout);
                         });
