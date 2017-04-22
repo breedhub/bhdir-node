@@ -21,7 +21,7 @@ module.exports = {
     instance: 'daemon',
 
     // Environment
-    env: process.env.NODE_ENV || 'production',
+    env: process.env.NODE_ENV || (!!process.env.DEBUG ? 'development' : 'production'),
 
     // Load base classes and services, path names
     autoload: [

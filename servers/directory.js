@@ -408,10 +408,9 @@ class Directory extends EventEmitter {
     /**
      * Set variable
      * @param {string} filename                     Variable path
-     * @param {boolean} [allowRoot=false]           Allow root as variable
      * @return {boolean}
      */
-    validatePath(filename, allowRoot = false) {
+    validatePath(filename) {
         if (typeof filename !== 'string' || !filename.length)
             return false;
 
@@ -433,7 +432,7 @@ class Directory extends EventEmitter {
         if (!info || !info.enabled)
             return false;
 
-        if (allowRoot && name === '/')
+        if (name === '/')
             return true;
 
         return (
@@ -463,12 +462,11 @@ class Directory extends EventEmitter {
     /**
      * Get directory and filename from variable name
      * @param {string} variable                     Variable name
-     * @param {boolean} [allowRoot=false]           Allow root as variable
      * @return {Promise}                            Resolves to [ directory, filename ]
      */
-    parseVariable(variable, allowRoot = false) {
+    parseVariable(variable) {
         return new Promise((resolve, reject) => {
-            if (!this.validatePath(variable, allowRoot))
+            if (!this.validatePath(variable))
                 return reject(new Error('Invalid directory or path'));
 
             let dir, name;
@@ -517,9 +515,12 @@ class Directory extends EventEmitter {
                                 mtime: 0,
                             };
                         }
+
+                        let promise;
+
                         let waiting = this.waiting.get(variable);
                         if (waiting && (!this.isEqual(waiting.value, info.value) || waiting.mtime !== info.mtime)) {
-                            this.notify(variable, info);
+                            promise = this.notify(variable, info);
                             waiting = null;
                         }
                         if (!waiting) {
@@ -528,15 +529,23 @@ class Directory extends EventEmitter {
                             this.waiting.set(variable, waiting);
                         }
 
-                        return new Promise((resolve) => {
-                            let cb = (timeout, value) => {
-                                this._logger.debug('directory', `Wait on ${variable} timeout: ${timeout}`);
-                                resolve([ timeout, value ]);
-                            };
-                            waiting.handlers.add(cb);
-                            if (timeout)
-                                setTimeout(() => { cb(true, info.value); }, timeout);
-                        });
+
+                        return Promise.resolve()
+                            .then(() => {
+                                if (promise)
+                                    return promise;
+                            })
+                            .then(() => {
+                                return new Promise((resolve) => {
+                                    let cb = (timeout, value) => {
+                                        this._logger.debug('directory', `Wait on ${variable} timeout: ${timeout}`);
+                                        resolve([ timeout, value ]);
+                                    };
+                                    waiting.handlers.add(cb);
+                                    if (timeout)
+                                        setTimeout(() => { cb(true, info.value); }, timeout);
+                                });
+                            });
                     })
             })
             .catch(error => {
@@ -596,7 +605,7 @@ class Directory extends EventEmitter {
     ls(variable) {
         this._logger.debug('directory', `Listing ${variable}`);
 
-        return this.parseVariable(variable, true)
+        return this.parseVariable(variable)
             .then(([ repo, filename ]) => {
                 let info = this.directories.get(repo);
                 let directory = path.join(info.dataDir, filename);
@@ -715,7 +724,7 @@ class Directory extends EventEmitter {
                                             .then(() => {
                                                 let exists;
                                                 try {
-                                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                                    fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
                                                     exists = true;
                                                 } catch (error) {
                                                     exists = false;
@@ -729,7 +738,7 @@ class Directory extends EventEmitter {
 
                                                         let success = false;
                                                         this._filer.lockUpdate(
-                                                            path.join(directory, '.vars.json'),
+                                                            path.join(directory, filename === '/' ? '.root.json' : '.vars.json'),
                                                             contents => {
                                                                 let json;
                                                                 try {
@@ -741,7 +750,10 @@ class Directory extends EventEmitter {
                                                                 }
 
                                                                 success = true;
-                                                                json[name] = attrs;
+                                                                if (name)
+                                                                    json[name] = attrs;
+                                                                else
+                                                                    json = attrs;
                                                                 return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                             },
                                                             { mode: info.fileMode, uid: info.uid, gid: info.gid }
@@ -837,7 +849,7 @@ class Directory extends EventEmitter {
 
                         let exists;
                         try {
-                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                            fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
                             exists = true;
                         } catch (error) {
                             exists = false;
@@ -874,7 +886,7 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(json => {
-                                let result = typeof json[name] === 'undefined' ? null : json[name];
+                                let result = name ? (typeof json[name] === 'undefined' ? null : json[name]) : json;
                                 if (!cacheResult)
                                     return result;
 
@@ -924,7 +936,7 @@ class Directory extends EventEmitter {
                             )
                             .then(() => {
                                 try {
-                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                    fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
                                 } catch (error) {
                                     return;
                                 }
@@ -937,7 +949,7 @@ class Directory extends EventEmitter {
 
                                         let success = false;
                                         this._filer.lockUpdate(
-                                                path.join(directory, '.vars.json'),
+                                                path.join(directory, filename === '/' ? '.root.json' : '.vars.json'),
                                                 contents => {
                                                     let json;
                                                     try {
@@ -947,12 +959,17 @@ class Directory extends EventEmitter {
                                                     }
 
                                                     success = true;
-                                                    if (!json[name])
-                                                        json[name] = {};
-                                                    this._initAttrs(json[name]);
-                                                    json[name].value = null;
-
-                                                    id = json[name]['id'];
+                                                    if (name) {
+                                                        if (!json[name])
+                                                            json[name] = {};
+                                                        this._initAttrs(json[name]);
+                                                        json[name].value = null;
+                                                        id = json[name]['id'];
+                                                    } else {
+                                                        this._initAttrs(json);
+                                                        json.value = null;
+                                                        id = json['id'];
+                                                    }
                                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                 },
                                                 { mode: info.fileMode, uid: info.uid, gid: info.gid }
@@ -1002,7 +1019,7 @@ class Directory extends EventEmitter {
                 return [ search.directory, search.path ];
             })
             .then(([ repo, filename ]) => {
-                if (!repo || !filename)
+                if (!repo || !filename || filename === '/')
                     return;
 
                 variable = `${repo}:${filename}`;
@@ -1188,7 +1205,7 @@ class Directory extends EventEmitter {
                                 return null;
 
                             let dir = path.dirname(filename);
-                            if (dir === '/')
+                            if (dir === filename)
                                 return null;
 
                             return getDepth(`${repo}:${dir}`);
@@ -1462,7 +1479,7 @@ class Directory extends EventEmitter {
                                 return null;
 
                             let dir = path.dirname(filename);
-                            if (dir === '/')
+                            if (dir === filename)
                                 return null;
 
                             return getDepth(`${repo}:${dir}`);
