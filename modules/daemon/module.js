@@ -97,6 +97,9 @@ class Daemon {
         let index = this._app.get('modules.daemon.events.index');
         server.on('index', index.handle.bind(index));
 
+        let vacuum = this._app.get('modules.daemon.events.vacuum');
+        server.on('vacuum', vacuum.handle.bind(vacuum));
+
         let clearCache = this._app.get('modules.daemon.events.clearCache');
         server.on('clear_cache', clearCache.handle.bind(clearCache));
 

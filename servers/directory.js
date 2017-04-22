@@ -1274,7 +1274,7 @@ class Directory extends EventEmitter {
                             numbers.push(parseInt(result[1]));
                         }
                         if (numbers.length) {
-                            numbers.sort();
+                            numbers.sort((a, b) => { return a - b; });
                             name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
                         } else {
                             name = '0001';
@@ -1551,7 +1551,7 @@ class Directory extends EventEmitter {
                                 numbers.push(number);
                         }
                         if (numbers.length) {
-                            numbers.sort();
+                            numbers.sort((a, b) => { return a - b; });
                             name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
                         } else {
                             name = '0001';
@@ -1653,20 +1653,20 @@ class Directory extends EventEmitter {
                             for (let file of files) {
                                 let result = reJson.exec(file);
                                 if (result)
-                                    numbers.push(result[1]);
+                                    numbers.push(parseInt(result[1]));
                             }
                             if (numbers.length) {
-                                numbers.sort();
+                                numbers.sort((a, b) => { return a - b; });
                                 resolve(path.join(dir, numbers[numbers.length - 1] + '.json'));
                             } else {
                                 numbers = [];
                                 for (let file of files) {
                                     let result = reDir.exec(file);
                                     if (result)
-                                        numbers.push(result[1]);
+                                        numbers.push(parseInt(result[1]));
                                 }
                                 if (numbers.length) {
-                                    numbers.sort();
+                                    numbers.sort((a, b) => { return a - b; });
                                     name = numbers[numbers.length - 1];
                                     loadDir(path.join(dir, name))
                                         .then(filename => {

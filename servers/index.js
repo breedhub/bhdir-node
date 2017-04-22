@@ -86,6 +86,8 @@ class Index extends EventEmitter {
                             uid: info.uid,
                             gid: info.gid,
                             tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
+                            added: new Map(),
+                            deleted: new Map(),
                             confirmation: new Map(),
                             needSave: false,
                             needLoad: false,
@@ -201,6 +203,7 @@ class Index extends EventEmitter {
             )
             .then(
                 () => {
+                    info.added.clear();
                     info.saving = false;
                     if (info.needSave)
                         return this.save(directory);
@@ -239,14 +242,17 @@ class Index extends EventEmitter {
                 if (!hashBuffer.equals(hash.digest()))
                     throw new Error('Index has wrong checksum');
 
-                let node = this._deserialize({ tree: info.tree, buffer: treeBuffer, offset: 0 }, null);
-                if (node)
+                let deleted = new Map();
+                let node = this._deserialize({ tree: info.tree, deleted: deleted, buffer: treeBuffer, offset: 0 }, null);
+                if (node) {
                     info.tree.tree = node;
+                    info.deleted = deleted;
+                }
 
                 for (let [ id, confirm ] of info.confirmation) {
                     let search = info.tree.search(id);
                     if (search.length) {
-                        if (++confirm.counter >= 3) {
+                        if (!!search[0].data.deleted || ++confirm.counter >= 3) {
                             this._logger.debug('index', `Id ${id} confirmed`);
                             info.confirmation.delete(id);
                         }
@@ -275,6 +281,37 @@ class Index extends EventEmitter {
     }
 
     /**
+     * Vacuum index
+     * @param {string} directory                Directory name
+     * @return {Promise}
+     */
+    vacuum(directory) {
+        let info = this.indexes.get(directory);
+        if (!info || !info.enabled)
+            return Promise.reject(new Error(`Unknown directory or directory is disabled: ${directory}`));
+
+        return Promise.resolve()
+            .then(() => {
+                let now = Math.round(Date.now() / 1000);
+                let needSave = false;
+                for (let [ id, timestamp ] of info.deleted) {
+                    if (timestamp > now - 60)
+                        continue;
+
+                    needSave = true;
+                    info.tree.delete(id);
+                    info.deleted.delete(id);
+                    info.added.delete(id);
+                }
+
+                if (needSave) {
+                    info.needSave = true;
+                    return this.save(directory);
+                }
+            })
+    }
+
+    /**
      * Find ID
      * @param {bignum} id                       ID
      * @return {object}
@@ -286,11 +323,9 @@ class Index extends EventEmitter {
             let search = info.tree.search(id);
             if (!search.length)
                 continue;
-            if (!search[0])
+            if (!search[0] || search[0].deleted)
                 return null;
 
-            if (!search[0].data)
-                search[0].data = JSON.parse(search[0].buffer);
             return Object.assign({ directory: directory }, search[0].data);
         }
 
@@ -342,6 +377,7 @@ class Index extends EventEmitter {
             buffer: null,
             data: data,
         });
+        info.added.set(id, Math.round(Date.now() / 1000));
         info.needSave = true;
 
         let confirm = info.confirmation.get(id);
@@ -361,14 +397,26 @@ class Index extends EventEmitter {
      */
     del(id) {
         for (let [ directory, info ] of this.indexes) {
+            info.confirmation.delete(id);
+
             let search = info.tree.search(id);
             if (search.length) {
                 this._logger.debug('index', `Deleting ${id}`);
-                info.tree.delete(id);
+
+                if (info.added.has(id)) {
+                    info.tree.delete(id);
+                    info.deleted.delete(id);
+                    info.added.delete(id);
+                } else if (!search[0].data.deleted) {
+                    search[0].data.deleted = Math.round(Date.now() / 1000);
+                    info.deleted.set(id, search[0].data.deleted);
+                }
+
                 info.needSave = true;
                 return;
             }
         }
+
     }
 
     /**
@@ -395,14 +443,12 @@ class Index extends EventEmitter {
         if (!node)
             return this.constructor.nullId;
 
-        let buffer = node.key.toBuffer();
-        if (buffer.length !== 16)
-            throw new Error(`Invalid ID size: ${buffer.length}`);
+        let buffer = Buffer.alloc(16);
+        node.key.toBuffer().copy(buffer);
         if (node.data.length !== 1)
             throw new Error(`Invalid data size: ${node.data.length}`);
 
-        if (!node.data[0].buffer)
-            node.data[0].buffer = Buffer.from(JSON.stringify(node.data[0].data));
+        node.data[0].buffer = Buffer.from(JSON.stringify(node.data[0].data));
 
         return Buffer.concat([ buffer, node.data[0].buffer, Buffer.alloc(1, 0), this._serialize(node.left), this._serialize(node.right) ]);
     }
@@ -430,9 +476,14 @@ class Index extends EventEmitter {
                 break;
         }
 
+        let content = info.buffer.slice(start, info.offset - 1);
+
         node.key = bignum.fromBuffer(id);
-        node.data = [ { buffer: info.buffer.slice(start, info.offset - 1), data: null } ];
+        node.data = [ { buffer: content, data: JSON.parse(content) } ];
         node.parent = parent;
+
+        if (!!node.data[0].data.deleted)
+            info.deleted.set(node.key, node.data[0].data.deleted);
 
         node.left = this._deserialize(info, node);
         node.right = this._deserialize(info, node);

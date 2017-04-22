@@ -84,6 +84,7 @@ class Help {
                 '\tupload\t\tUpload a file\n' +
                 '\tdownload\tDownload a file\n' +
                 '\tindex\t\tBuild index\n' +
+                '\tvacuum\t\tRemove deleted entries from index\n' +
                 '\tstart\t\tStart the daemon\n' +
                 '\tstop\t\tStop the daemon\n' +
                 '\trestart\t\tRestart the daemon\n' +
@@ -331,6 +332,21 @@ class Help {
         return this._app.info(
                 'Usage:\tbhdirctl index [-z <socket>]\n\n' +
                 '\tBuild index.'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Vacuum command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpVacuum(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl vacuum [<folder> [... <folder>]] [-z <socket>]\n\n' +
+                '\tRemove deleted entries from index.'
             )
             .then(() => {
                 process.exit(0);

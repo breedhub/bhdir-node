@@ -288,6 +288,9 @@ class Daemon extends EventEmitter {
                 case 'index':
                     this.emit('index', id, message);
                     break;
+                case 'vacuum':
+                    this.emit('vacuum', id, message);
+                    break;
                 case 'clear-cache':
                     this.emit('clear_cache', id, message);
                     break;

@@ -1,6 +1,6 @@
 /**
- * Index command
- * @module commands/index
+ * Vacuum command
+ * @module commands/vacuum
  */
 const path = require('path');
 const net = require('net');
@@ -11,7 +11,7 @@ const SocketWrapper = require('socket-wrapper');
 /**
  * Command class
  */
-class Index {
+class Vacuum {
     /**
      * Create the service
      * @param {App} app                 The application
@@ -25,11 +25,11 @@ class Index {
     }
 
     /**
-     * Service name is 'commands.index'
+     * Service name is 'commands.vacuum'
      * @type {string}
      */
     static get provides() {
-        return 'commands.index';
+        return 'commands.vacuum';
     }
 
     /**
@@ -65,7 +65,7 @@ class Index {
 
         let request = {
             id: uuid.v1(),
-            command: 'index',
+            command: 'vacuum',
             args: folders,
         };
 
@@ -77,12 +77,6 @@ class Index {
 
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
-
-                return response.results.reduce((prev, cur) => {
-                    return prev.then(() => {
-                        return this._app.info(cur);
-                    });
-                }, Promise.resolve());
             })
             .then(() => {
                 process.exit(0);
@@ -144,4 +138,4 @@ class Index {
     }
 }
 
-module.exports = Index;
+module.exports = Vacuum;

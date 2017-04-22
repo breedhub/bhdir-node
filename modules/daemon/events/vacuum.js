@@ -1,6 +1,6 @@
 /**
- * Index event
- * @module daemon/events/index
+ * Vacuum event
+ * @module daemon/events/vacuum
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
@@ -8,7 +8,7 @@ const WError = require('verror').WError;
 /**
  * Get event class
  */
-class Index {
+class Vacuum {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +22,11 @@ class Index {
     }
 
     /**
-     * Service name is 'modules.daemon.events.index'
+     * Service name is 'modules.daemon.events.vacuum'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.index';
+        return 'modules.daemon.events.vacuum';
     }
 
     /**
@@ -47,18 +47,16 @@ class Index {
         if (!client)
             return;
 
-        this._logger.debug('get', `Got INDEX command`);
+        this._logger.debug('get', `Got VACUUM command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (success)
-                reply.results = value;
-            else
+            if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('get', `Sending INDEX response`);
+            this._logger.debug('get', `Sending VACUUM response`);
             this.daemon.send(id, data);
         };
 
@@ -68,21 +66,18 @@ class Index {
 
         folders.reduce(
                 (prev, cur) => {
-                    return prev.then(messages => {
-                        return this.index.build(cur)
-                            .then(msg => {
-                                return messages.concat(msg);
-                            });
+                    return prev.then(() => {
+                        return this.index.vacuum(cur);
                     });
                 },
-                Promise.resolve([])
+                Promise.resolve()
             )
-            .then(messages => {
-                reply(true, messages);
+            .then(() => {
+                reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Index.handle()'));
+                this._logger.error(new WError(error, 'Vacuum.handle()'));
             });
     }
 
@@ -131,4 +126,4 @@ class Index {
     }
 }
 
-module.exports = Index;
+module.exports = Vacuum;
