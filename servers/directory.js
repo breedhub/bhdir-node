@@ -866,7 +866,7 @@ class Directory extends EventEmitter {
                                         if (++tries > this.constructor.dataRetryMax)
                                             return reject(new Error(`Max retries reached while getting ${variable}`));
 
-                                        this._filer.lockRead(path.join(directory, '.vars.json'))
+                                        this._filer.lockRead(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'))
                                             .then(contents => {
                                                 let json;
                                                 try {
@@ -1201,13 +1201,10 @@ class Directory extends EventEmitter {
                             return [search.directory, search.path];
                         })
                         .then(([repo, filename]) => {
-                            if (!repo || !filename)
+                            if (!repo || !filename || filename === '/')
                                 return null;
 
                             let dir = path.dirname(filename);
-                            if (dir === filename)
-                                return null;
-
                             return getDepth(`${repo}:${dir}`);
                         });
                 });
@@ -1475,13 +1472,10 @@ class Directory extends EventEmitter {
                             return [ search.directory, search.path ]
                         })
                         .then(([ repo, filename ]) => {
-                            if (!repo || !filename)
+                            if (!repo || !filename || filename === '/')
                                 return null;
 
                             let dir = path.dirname(filename);
-                            if (dir === filename)
-                                return null;
-
                             return getDepth(`${repo}:${dir}`);
                         });
                 })
