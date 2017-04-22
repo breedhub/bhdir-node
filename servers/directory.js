@@ -1131,7 +1131,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     setHDepth(variable, value) {
-        if (value === null)
+        if (!value)
             return this.delAttr(variable, 'hdepth');
 
         return this.setAttr(variable, 'hdepth', value)
@@ -1402,7 +1402,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     setFDepth(variable, value) {
-        if (value === null)
+        if (!value)
             return this.delAttr(variable, 'fdepth');
 
         return this.setAttr(variable, 'fdepth', value)
