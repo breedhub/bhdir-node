@@ -260,18 +260,18 @@ class Directory extends EventEmitter {
                             .then(([userInfo, groupInfo]) => {
                                 let userDb = userInfo.stdout.trim().split(':');
                                 if (userInfo.code !== 0 || userDb.length !== 7) {
+                                    this._logger.error(`Directory user ${info.user} not found`);
                                     info.user = null;
                                     info.uid = null;
-                                    this._logger.error(`Directory user ${info.user} not found`);
                                 } else {
                                     info.uid = parseInt(userDb[2]);
                                 }
 
                                 let groupDb = groupInfo.stdout.trim().split(':');
                                 if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                                    this._logger.error(`Directory group ${info.group} not found`);
                                     info.group = null;
                                     info.gid = null;
-                                    this._logger.error(`Directory group ${info.group} not found`);
                                 } else {
                                     info.gid = parseInt(groupDb[2]);
                                 }
@@ -320,55 +320,24 @@ class Directory extends EventEmitter {
                                 );
                             })
                             .then(() => {
-                                return this._filer.createDirectory(
-                                    info.dataDir,
-                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._filer.createDirectory(
-                                    info.stateDir,
-                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._filer.createFile(
-                                    path.join(info.dataDir, '.bhdir.json'),
-                                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
                                 return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
                             })
                             .then(() => {
                                 return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
                             })
                             .then(() => {
-                                return this._filer.lockUpdate(
-                                    path.join(info.dataDir, '.bhdir.json'),
-                                    contents => {
+                                return this._filer.lockRead(path.join(info.dataDir, '.bhdir.json'))
+                                    .then(contents => {
                                         let json;
                                         try {
                                             json = JSON.parse(contents);
-                                            if (typeof json !== 'object')
-                                                return Promise.reject(new Error(`.bhdir.json of ${cur} is damaged`));
                                         } catch (error) {
                                             json = {};
                                         }
+                                        if (typeof json !== 'object')
+                                            throw new Error(`.bhdir.json of ${cur} is damaged`);
 
-                                        if (!json.directory)
-                                            json.directory = {};
-                                        if (!json.directory.format)
-                                            json.directory.format = 2;
-                                        if (!json.directory.upgrading)
-                                            json.directory.upgrading = false;
-
-                                        info.enabled = (json.directory.format === 2);
-
-                                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                    }
-                                    )
-                                    .then(() => {
+                                        info.enabled = ((json.directory && json.directory.format) === 2);
                                         if (!info.enabled)
                                             this._logger.info(`Unsupported directory format of ${cur} - ignoring...`);
                                     });
@@ -492,7 +461,7 @@ class Directory extends EventEmitter {
      * @return {Promise}                            Resolves to { readwrite, readonly }
      */
     createFolder(folder, directory) {
-        let readwrite, readonly, configPath, cwd = process.cwd();
+        let readwrite, readonly, configPath, cwd = process.cwd(), uid, gid;
         process.chdir('/tmp');
         return this._runner.exec(this.syncBin, [ '--generate-secret' ])
             .then(result => {
@@ -552,7 +521,69 @@ class Directory extends EventEmitter {
                     cache_ttl: '300'
                 };
                 fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+            })
+            .then(() => {
+                return Promise.all([
+                    this._runner.exec('grep', [ '-E', `^rslsync:`, '/etc/passwd' ]),
+                    this._runner.exec('grep', [ '-E', `^bhdir:`, '/etc/group' ]),
+                ]);
+            })
+            .then(([ userInfo, groupInfo ]) => {
+                let userDb = userInfo.stdout.trim().split(':');
+                if (userInfo.code !== 0 || userDb.length !== 7) {
+                    uid = null;
+                } else {
+                    uid = parseInt(userDb[2]);
+                }
 
+                let groupDb = groupInfo.stdout.trim().split(':');
+                if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                    gid = null;
+                } else {
+                    gid = parseInt(groupDb[2]);
+                }
+            })
+            .then(() => {
+                return this._filer.createDirectory(
+                    directory,
+                    { mode: 0o770, uid: uid, gid: gid }
+                );
+            })
+            .then(() => {
+                return this._filer.createDirectory(
+                    path.join(directory, 'data'),
+                    { mode: 0o770, uid: uid, gid: gid }
+                );
+            })
+            .then(() => {
+                return this._filer.createFile(
+                    path.join(directory, 'data', '.bhdir.json'),
+                    { mode: 0o660, uid: uid, gid: gid }
+                );
+            })
+            .then(() => {
+                return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
+                    .catch(() => {
+                        // do nothing
+                    });
+            })
+            .then(() => {
+                return this._runner.exec('chmod', [ '-R', 'ug+rwX', directory ]);
+            })
+            .then(() => {
+                let json = {
+                    directory: {
+                        format: 2,
+                        upgrading: false,
+                    },
+                };
+
+                return this._filer.lockWrite(
+                    path.join(directory, 'data', '.bhdir.json'),
+                    JSON.stringify(json, undefined, 4) + '\n'
+                );
+            })
+            .then(() => {
                 return { readwrite, readonly };
             })
             .catch(error => {
@@ -569,7 +600,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     addFolder(folder, directory, secret) {
-        let configPath;
+        let configPath, uid, gid;
         return this._filer.lockUpdate(
                 this.syncConfig,
                 contents => {
@@ -611,6 +642,42 @@ class Directory extends EventEmitter {
                     cache_ttl: '300'
                 };
                 fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+            })
+            .then(() => {
+                return Promise.all([
+                    this._runner.exec('grep', [ '-E', `^rslsync:`, '/etc/passwd' ]),
+                    this._runner.exec('grep', [ '-E', `^bhdir:`, '/etc/group' ]),
+                ]);
+            })
+            .then(([ userInfo, groupInfo ]) => {
+                let userDb = userInfo.stdout.trim().split(':');
+                if (userInfo.code !== 0 || userDb.length !== 7) {
+                    uid = null;
+                } else {
+                    uid = parseInt(userDb[2]);
+                }
+
+                let groupDb = groupInfo.stdout.trim().split(':');
+                if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                    gid = null;
+                } else {
+                    gid = parseInt(groupDb[2]);
+                }
+            })
+            .then(() => {
+                return this._filer.createDirectory(
+                    directory,
+                    { mode: 0o770, uid: uid, gid: gid }
+                );
+            })
+            .then(() => {
+                return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
+                    .catch(() => {
+                        // do nothing
+                    });
+            })
+            .then(() => {
+                return this._runner.exec('chmod', [ '-R', 'ug+rwX', directory ]);
             });
     }
 
