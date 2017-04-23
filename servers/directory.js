@@ -1282,6 +1282,9 @@ class Directory extends EventEmitter {
                 if (!info)
                     info = {};
 
+                if (this.isEqual(info[name], value))
+                    return null;
+
                 this._initAttrs(info);
                 info[name] = value;
                 return this.set(variable, info);
