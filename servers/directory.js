@@ -1338,7 +1338,7 @@ class Directory extends EventEmitter {
 
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
-                let files = [];
+                let files = [], dirs = [];
                 return this._filer.process(
                         path.join(info.dataDir, filename, '.history'),
                         file => {
@@ -1359,23 +1359,27 @@ class Directory extends EventEmitter {
                             if (this._util.isUuid(files[i]['id']))
                                 this._index.del(this._index.constructor.binUuid(files[i]['id']));
                             promises.push(this._filer.remove(files[i]['path']));
+
+                            let dir = path.dirname(files[i]['path']);
+                            if (path.basename(dir) !== '.history' && dirs.indexOf(dir) === -1)
+                                dirs.push(dir);
                         }
 
                         if (promises.length)
                             return Promise.all(promises);
                     })
                     .then(() => {
-                        let deleteEmpty = files => {
+                        let deleteEmpty = dirs => {
                             let todo = [];
-                            return files.reduce(
+                            return dirs.reduce(
                                     (prev, cur) => {
                                         return prev.then(() => {
                                             try {
-                                                let dir = path.dirname(cur.path);
-                                                if (!fs.readdirSync(dir).length) {
+                                                if (!fs.readdirSync(cur).length) {
+                                                    let dir = path.dirname(cur);
                                                     if (path.basename(dir) !== '.history' && todo.indexOf(dir) === -1)
                                                         todo.push(dir);
-                                                    return this._filer.remove(dir);
+                                                    return this._filer.remove(cur);
                                                 }
                                             } catch (error) {
                                                 // do nothing
@@ -1390,7 +1394,7 @@ class Directory extends EventEmitter {
                                         return deleteEmpty(todo);
                                 })
                         };
-                        return deleteEmpty(files);
+                        return deleteEmpty(dirs);
                     });
             });
     }
@@ -1728,7 +1732,7 @@ class Directory extends EventEmitter {
 
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
-                let files = [];
+                let files = [], dirs = [];
                 return this._filer.process(
                     path.join(info.dataDir, filename, '.files'),
                     file => {
@@ -1763,23 +1767,27 @@ class Directory extends EventEmitter {
                                     this._filer.remove(files[i]['bin']),
                                 ])
                             );
+
+                            let dir = path.dirname(files[i]['path']);
+                            if (path.basename(dir) !== '.files' && dirs.indexOf(dir) === -1)
+                                dirs.push(dir);
                         }
 
                         if (promises.length)
                             return Promise.all(promises);
                     })
                     .then(() => {
-                        let deleteEmpty = files => {
+                        let deleteEmpty = dirs => {
                             let todo = [];
-                            return files.reduce(
+                            return dirs.reduce(
                                     (prev, cur) => {
                                         return prev.then(() => {
                                             try {
-                                                let dir = path.dirname(cur.path);
-                                                if (!fs.readdirSync(dir).length) {
+                                                if (!fs.readdirSync(cur).length) {
+                                                    let dir = path.dirname(cur);
                                                     if (path.basename(dir) !== '.files' && todo.indexOf(dir) === -1)
                                                         todo.push(dir);
-                                                    return this._filer.remove(dir);
+                                                    return this._filer.remove(cur);
                                                 }
                                             } catch (error) {
                                                 // do nothing
@@ -1794,7 +1802,7 @@ class Directory extends EventEmitter {
                                         return deleteEmpty(todo);
                                 })
                         };
-                        return deleteEmpty(files);
+                        return deleteEmpty(dirs);
                     });
             });
     }
