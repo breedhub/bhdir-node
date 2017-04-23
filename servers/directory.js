@@ -570,6 +570,17 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
+                let json = {
+                    hdepth: 1,
+                    fdepth: 1,
+                };
+
+                return this._filer.lockWrite(
+                    path.join(directory, 'data', '.root.json'),
+                    JSON.stringify(json, undefined, 4) + '\n'
+                );
+            })
+            .then(() => {
                 return { readwrite, readonly };
             })
             .catch(error => {
