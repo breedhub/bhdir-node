@@ -326,21 +326,7 @@ class Directory extends EventEmitter {
                                 return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
                             })
                             .then(() => {
-                                return this._filer.lockRead(path.join(info.dataDir, '.bhdir.json'))
-                                    .then(contents => {
-                                        let json;
-                                        try {
-                                            json = JSON.parse(contents);
-                                        } catch (error) {
-                                            json = {};
-                                        }
-                                        if (typeof json !== 'object')
-                                            throw new Error(`.bhdir.json of ${cur} is damaged`);
-
-                                        info.enabled = ((json.directory && json.directory.format) === 2);
-                                        if (!info.enabled)
-                                            this._logger.info(`Unsupported directory format of ${cur} - ignoring...`);
-                                    });
+                                info.enabled = true;
                             });
                     },
                     Promise.resolve()
@@ -1024,7 +1010,7 @@ class Directory extends EventEmitter {
             })
             .then(([ repo, filename, type, attr ]) => {
                 if (!repo || !filename)
-                    return;
+                    return null;
 
                 variable = `${repo}:${filename}`;
                 this._logger.debug('directory', `Getting ${variable}`);
