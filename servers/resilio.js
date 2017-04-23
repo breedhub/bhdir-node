@@ -337,6 +337,11 @@ class Resilio extends EventEmitter {
                         });
                         varPromises.push(this._filer.lockRead(path.join(file, '.vars.json')));
                     }
+                } else if (result[1].startsWith(info.dataDir) && result[1].endsWith('/.root.json')) {
+                    this._cacher.unset(`${directory}:/`)
+                        .catch(error => {
+                            this._logger.error(`Index error: ${error.message}`);
+                        });
                 }
             }
         }
