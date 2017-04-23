@@ -1,14 +1,14 @@
 /**
- * Vacuum event
- * @module daemon/events/vacuum
+ * Add Folder event
+ * @module daemon/events/add-folder
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Get event class
+ * Add Folder event class
  */
-class Vacuum {
+class AddFolder {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +22,11 @@ class Vacuum {
     }
 
     /**
-     * Service name is 'modules.daemon.events.vacuum'
+     * Service name is 'modules.daemon.events.addFolder'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.vacuum';
+        return 'modules.daemon.events.addFolder';
     }
 
     /**
@@ -47,7 +47,7 @@ class Vacuum {
         if (!client)
             return;
 
-        this._logger.debug('vacuum', `Got VACUUM command`);
+        this._logger.debug('add-folder', `Got ADD FOLDER command`);
         let reply = (success, value) => {
             let reply = {
                 id: message.id,
@@ -56,28 +56,24 @@ class Vacuum {
             if (!success)
                 reply.message = value;
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('vacuum', `Sending VACUUM response`);
+            this._logger.debug('create-folder', `Sending CREATE FOLDER response`);
             this.daemon.send(id, data);
         };
 
-        let folders = message.args;
-        if (!folders.length)
-            folders = Array.from(this.directory.directories.keys());
+        if (message.args.length !== 3)
+            return reply(false, 'Invalid arguments list');
 
-        folders.reduce(
-                (prev, cur) => {
-                    return prev.then(() => {
-                        return this.index.vacuum(cur);
-                    });
-                },
-                Promise.resolve()
-            )
+        let secret = message.args[0];
+        let folder = message.args[1];
+        let dir = message.args[2];
+
+        this.directory.addFolder(folder, dir, secret)
             .then(() => {
                 reply(true);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Vacuum.handle()'));
+                this._logger.error(new WError(error, 'AddFolder.handle()'));
             });
     }
 
@@ -104,17 +100,6 @@ class Vacuum {
     }
 
     /**
-     * Retrieve index server
-     * @return {Index}
-     */
-    get index() {
-        if (this._index)
-            return this._index;
-        this._index = this._app.get('servers').get('index');
-        return this._index;
-    }
-
-    /**
      * Retrieve watcher server
      * @return {Watcher}
      */
@@ -126,4 +111,4 @@ class Vacuum {
     }
 }
 
-module.exports = Vacuum;
+module.exports = AddFolder;

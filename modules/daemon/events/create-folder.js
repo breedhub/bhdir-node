@@ -1,14 +1,14 @@
 /**
- * Vacuum event
- * @module daemon/events/vacuum
+ * Create Folder event
+ * @module daemon/events/create-folder
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Get event class
+ * Create Folder event class
  */
-class Vacuum {
+class CreateFolder {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +22,11 @@ class Vacuum {
     }
 
     /**
-     * Service name is 'modules.daemon.events.vacuum'
+     * Service name is 'modules.daemon.events.createFolder'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.vacuum';
+        return 'modules.daemon.events.createFolder';
     }
 
     /**
@@ -47,37 +47,38 @@ class Vacuum {
         if (!client)
             return;
 
-        this._logger.debug('vacuum', `Got VACUUM command`);
-        let reply = (success, value) => {
+        this._logger.debug('create-folder', `Got CREATE FOLDER command`);
+        let reply = (success, value1, value2) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (!success)
-                reply.message = value;
+            if (success) {
+                reply.results = [
+                    value1,
+                    value2
+                ];
+            } else {
+                reply.message = value1;
+            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('vacuum', `Sending VACUUM response`);
+            this._logger.debug('create-folder', `Sending CREATE FOLDER response`);
             this.daemon.send(id, data);
         };
 
-        let folders = message.args;
-        if (!folders.length)
-            folders = Array.from(this.directory.directories.keys());
+        if (message.args.length !== 2)
+            return reply(false, 'Invalid arguments list');
 
-        folders.reduce(
-                (prev, cur) => {
-                    return prev.then(() => {
-                        return this.index.vacuum(cur);
-                    });
-                },
-                Promise.resolve()
-            )
-            .then(() => {
-                reply(true);
+        let folder = message.args[0];
+        let dir = message.args[1];
+
+        this.directory.createFolder(folder, dir)
+            .then(info => {
+                reply(true, info.readwrite, info.readonly);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Vacuum.handle()'));
+                this._logger.error(new WError(error, 'CreateFolder.handle()'));
             });
     }
 
@@ -104,17 +105,6 @@ class Vacuum {
     }
 
     /**
-     * Retrieve index server
-     * @return {Index}
-     */
-    get index() {
-        if (this._index)
-            return this._index;
-        this._index = this._app.get('servers').get('index');
-        return this._index;
-    }
-
-    /**
      * Retrieve watcher server
      * @return {Watcher}
      */
@@ -126,4 +116,4 @@ class Vacuum {
     }
 }
 
-module.exports = Vacuum;
+module.exports = CreateFolder;

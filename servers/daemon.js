@@ -246,6 +246,12 @@ class Daemon extends EventEmitter {
         try {
             this._logger.debug('daemon', `Client message ${message.command}`);
             switch(message.command) {
+                case 'create-folder':
+                    this.emit('create_folder', id, message);
+                    break;
+                case 'add-folder':
+                    this.emit('add_folder', id, message);
+                    break;
                 case 'ls':
                     this.emit('ls', id, message);
                     break;

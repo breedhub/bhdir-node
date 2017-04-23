@@ -70,6 +70,8 @@ class Help {
                 'Commands:\n' +
                 '\thelp\t\tPrint help about any other command\n' +
                 '\tinstall\t\tRegister the program in the system\n' +
+                '\tcreate-folder\tCreate sync folder\n' +
+                '\tadd-folder\tAdd created sync folder\n' +
                 '\tls\t\tList variables of a path\n' +
                 '\tset\t\tSet variable value\n' +
                 '\tget\t\tGet variable value\n' +
@@ -120,6 +122,36 @@ class Help {
                 'Usage:\tbhdirctl install\n\n' +
                 '\tThis command will register the program in the system\n' +
                 '\tand will create configuration in /etc/bhid by default'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Create Folder command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpCreateFolder(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl create-folder <path> [-n <name>] [-z <socket>]\n\n' +
+                '\tCreates synchronization folder with the given path. Folder name is basename of the path if -n is not set'
+            )
+            .then(() => {
+                process.exit(0);
+            });
+    }
+
+    /**
+     * Add Folder command
+     * @param {string[]} argv           Arguments
+     * @return {Promise}
+     */
+    helpAddFolder(argv) {
+        return this._app.info(
+                'Usage:\tbhdirctl add-folder <path> <secret> [-n <name>] [-z <socket>]\n\n' +
+                '\tAdds synchronization folder with the given path and secret. Folder name is basename of the path if -n is not set'
             )
             .then(() => {
                 process.exit(0);

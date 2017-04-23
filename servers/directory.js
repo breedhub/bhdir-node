@@ -183,6 +183,8 @@ class Directory extends EventEmitter {
                     updateConf = true;
                 }
 
+                this.syncBin = (bhdirConfig.resilio && bhdirConfig.resilio.bin) || '/usr/bin/rslsync';
+                this.syncConfig = os.platform() === 'freebsd' ? '/usr/local/etc/rslsync/rslsync.conf' : '/etc/resilio-sync/config.json';
                 this.syncUser = bhdirConfig.resilio && bhdirConfig.resilio.user;
                 this.syncLog = bhdirConfig.resilio && bhdirConfig.resilio.sync_log;
                 if (!this.syncUser) {
@@ -481,6 +483,135 @@ class Directory extends EventEmitter {
 
             resolve([ dir, name ]);
         });
+    }
+
+    /**
+     * Create folder
+     * @param {string} folder                       Folder name
+     * @param {string} directory                    Folder path
+     * @return {Promise}                            Resolves to { readwrite, readonly }
+     */
+    createFolder(folder, directory) {
+        let readwrite, readonly, configPath, cwd = process.cwd();
+        process.chdir('/tmp');
+        return this._runner.exec(this.syncBin, [ '--generate-secret' ])
+            .then(result => {
+                if (result.code !== 0)
+                    throw new Error('Could not generate readwrite secret');
+
+                readwrite = result.stdout.trim();
+                return this._runner.exec(this.syncBin, [ '--get-ro-secret', readwrite ]);
+            })
+            .then(result => {
+                if (result.code !== 0)
+                    throw new Error('Could not generate readonly secret');
+
+                readonly = result.stdout.trim();
+
+                process.chdir(cwd);
+
+                return this._filer.lockUpdate(
+                    this.syncConfig,
+                    contents => {
+                        contents = contents.replace(/\/\/.*/g, '');
+                        contents = contents.replace(/\/\*[\s\S]*?\*\//g, '');
+                        let json = JSON.parse(contents);
+                        if (!json.shared_folders)
+                            json.shared_folders = [];
+                        json.shared_folders.push(
+                            {
+                                secret: readwrite,
+                                dir: directory,
+                                use_relay_server: true,
+                                search_lan: true,
+                                use_sync_trash: false,
+                                overwrite_changes: false,
+                                selective_sync: false,
+                            }
+                        );
+                        return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                    }
+                );
+            })
+            .then(() => {
+                configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                bhdirConfig[`${folder.replace(/\./g, '\\.')}:directory`] = {
+                    default: 'no',
+                    root: directory,
+                    user: 'rslsync',
+                    group: 'bhdir',
+                    dir_mode: '770',
+                    file_mode: '660',
+                    cache_ttl: '300'
+                };
+                fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+
+                return { readwrite, readonly };
+            })
+            .catch(error => {
+                process.chdir(cwd);
+                throw error;
+            });
+    }
+
+    /**
+     * Add folder
+     * @param {string} folder                       Folder name
+     * @param {string} directory                    Folder path
+     * @param {string} secret                       Secret
+     * @return {Promise}
+     */
+    addFolder(folder, directory, secret) {
+        let configPath;
+        return this._filer.lockUpdate(
+                this.syncConfig,
+                contents => {
+                    contents = contents.replace(/\/\/.*/g, '');
+                    contents = contents.replace(/\/\*[\s\S]*?\*\//g, '');
+                    let json = JSON.parse(contents);
+                    if (!json.shared_folders)
+                        json.shared_folders = [];
+                    json.shared_folders.push(
+                        {
+                            secret: secret,
+                            dir: directory,
+                            use_relay_server: true,
+                            search_lan: true,
+                            use_sync_trash: false,
+                            overwrite_changes: false,
+                            selective_sync: false,
+                        }
+                    );
+                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                }
+            )
+            .then(() => {
+                configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                bhdirConfig[`${folder.replace(/\./g, '\\.')}:directory`] = {
+                    default: 'no',
+                    root: directory,
+                    user: 'rslsync',
+                    group: 'bhdir',
+                    dir_mode: '770',
+                    file_mode: '660',
+                    cache_ttl: '300'
+                };
+                fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+            });
     }
 
     /**
