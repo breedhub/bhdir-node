@@ -1857,22 +1857,30 @@ class Directory extends EventEmitter {
                             let reJson = /^(\d+)\.json$/, reDir = /^(\d+)$/;
                             for (let file of files) {
                                 let result = reJson.exec(file);
-                                if (result)
-                                    numbers.push(parseInt(result[1]));
+                                if (result) {
+                                    numbers.push({
+                                        num: parseInt(result[1]),
+                                        str: result[1],
+                                    });
+                                }
                             }
                             if (numbers.length) {
-                                numbers.sort((a, b) => { return a - b; });
-                                resolve(path.join(dir, numbers[numbers.length - 1] + '.json'));
+                                numbers.sort((a, b) => { return a.num - b.num; });
+                                resolve(path.join(dir, numbers[numbers.length - 1].str + '.json'));
                             } else {
                                 numbers = [];
                                 for (let file of files) {
                                     let result = reDir.exec(file);
-                                    if (result)
-                                        numbers.push(parseInt(result[1]));
+                                    if (result) {
+                                        numbers.push({
+                                            num: parseInt(result[1]),
+                                            str: result[1],
+                                        });
+                                    }
                                 }
                                 if (numbers.length) {
-                                    numbers.sort((a, b) => { return a - b; });
-                                    name = numbers[numbers.length - 1];
+                                    numbers.sort((a, b) => { return a.num - b.num; });
+                                    name = numbers[numbers.length - 1].str;
                                     loadDir(path.join(dir, name))
                                         .then(filename => {
                                             resolve(filename);
