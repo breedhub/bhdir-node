@@ -548,15 +548,6 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
-                return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
-                    .catch(() => {
-                        // do nothing
-                    });
-            })
-            .then(() => {
-                return this._runner.exec('chmod', [ '-R', 'ug+rwX', directory ]);
-            })
-            .then(() => {
                 let json = {
                     directory: {
                         format: 2,
@@ -579,6 +570,15 @@ class Directory extends EventEmitter {
                     path.join(directory, 'data', '.root.json'),
                     JSON.stringify(json, undefined, 4) + '\n'
                 );
+            })
+            .then(() => {
+                return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
+                    .catch(() => {
+                        // do nothing
+                    });
+            })
+            .then(() => {
+                return this._runner.exec('chmod', [ '-R', 'ug+rwX', directory ]);
             })
             .then(() => {
                 return { readwrite, readonly };
