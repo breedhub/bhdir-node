@@ -668,6 +668,12 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
+                return this._filer.createDirectory(
+                    path.join(directory, 'data'),
+                    { mode: 0o770, uid: uid, gid: gid }
+                );
+            })
+            .then(() => {
                 return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
                     .catch(() => {
                         // do nothing
