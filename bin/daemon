@@ -86,7 +86,7 @@ fs.writeSync(fd, pidBuffer, 0, pidBuffer.length, null);
 
 function restart() {
     let buffer = '';
-    let proc = runner.spawn('node', [ path.join(__dirname, 'run'), 'directory', 'daemon', 'state', 'index', 'resilio' ]);
+    let proc = runner.spawn('node', [ path.join(__dirname, 'run'), 'directory', 'daemon', 'index', 'resilio' ]);
     proc.cmd.on('data', data => {
         process.stdout.write(data);
         buffer += data.toString();
