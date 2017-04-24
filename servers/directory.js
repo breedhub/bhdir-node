@@ -232,50 +232,9 @@ class Directory extends EventEmitter {
 
                 return Array.from(this.directories.keys()).reduce(
                     (prev, cur) => {
-                        let info = this.directories.get(cur);
                         return prev.then(() => {
-                                if (!info.group)
-                                    return;
-
-                                if (os.platform() === 'freebsd')
-                                    return this._runner.exec('pw', ['groupadd', info.group]);
-
-                                return this._runner.exec('groupadd', [info.group]);
-                            })
-                            .then(() => {
-                                if (!info.group || !this.syncUser)
-                                    return;
-
-                                if (os.platform() === 'freebsd')
-                                    return this._runner.exec('pw', ['groupmod', info.group, '-m', this.syncUser]);
-
-                                return this._runner.exec('usermod', ['-G', info.group, '-a', this.syncUser]);
-                            })
-                            .then(() => {
-                                return Promise.all([
-                                    this._runner.exec('grep', ['-E', `^${info.user}:`, '/etc/passwd']),
-                                    this._runner.exec('grep', ['-E', `^${info.group}:`, '/etc/group']),
-                                ]);
-                            })
-                            .then(([userInfo, groupInfo]) => {
-                                let userDb = userInfo.stdout.trim().split(':');
-                                if (userInfo.code !== 0 || userDb.length !== 7) {
-                                    this._logger.error(`Directory user ${info.user} not found`);
-                                    info.user = null;
-                                    info.uid = null;
-                                } else {
-                                    info.uid = parseInt(userDb[2]);
-                                }
-
-                                let groupDb = groupInfo.stdout.trim().split(':');
-                                if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                                    this._logger.error(`Directory group ${info.group} not found`);
-                                    info.group = null;
-                                    info.gid = null;
-                                } else {
-                                    info.gid = parseInt(groupDb[2]);
-                                }
-                            });
+                            return this._startFolder(cur);
+                        });
                     },
                     Promise.resolve()
                 )
@@ -304,33 +263,6 @@ class Directory extends EventEmitter {
                 } else {
                     this.socketGid = parseInt(groupDb[2]);
                 }
-            })
-            .then(() => {
-                return Array.from(this.directories.keys()).reduce(
-                    (prev, cur) => {
-                        let info = this.directories.get(cur);
-                        info.enabled = false;
-                        if (!info.user || !info.group)
-                            return;
-
-                        return prev.then(() => {
-                                return this._filer.createDirectory(
-                                    info.rootDir,
-                                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                                );
-                            })
-                            .then(() => {
-                                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
-                            })
-                            .then(() => {
-                                return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
-                            })
-                            .then(() => {
-                                info.enabled = true;
-                            });
-                    },
-                    Promise.resolve()
-                );
             });
     }
 
@@ -447,7 +379,7 @@ class Directory extends EventEmitter {
      * @return {Promise}                            Resolves to { readwrite, readonly }
      */
     createFolder(folder, directory) {
-        let readwrite, readonly, configPath, cwd = process.cwd(), uid, gid;
+        let readwrite, readonly, configPath, cwd = process.cwd(), info;
         process.chdir('/tmp');
         return this._runner.exec(this.syncBin, [ '--generate-secret' ])
             .then(result => {
@@ -509,43 +441,18 @@ class Directory extends EventEmitter {
                 fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
             })
             .then(() => {
-                return Promise.all([
-                    this._runner.exec('grep', [ '-E', `^rslsync:`, '/etc/passwd' ]),
-                    this._runner.exec('grep', [ '-E', `^bhdir:`, '/etc/group' ]),
-                ]);
-            })
-            .then(([ userInfo, groupInfo ]) => {
-                let userDb = userInfo.stdout.trim().split(':');
-                if (userInfo.code !== 0 || userDb.length !== 7) {
-                    uid = null;
-                } else {
-                    uid = parseInt(userDb[2]);
-                }
+                info.rootDir = directory;
+                info.dataDir = path.join(info.rootDir, 'data');
+                info.stateDir = path.join(info.rootDir, 'state');
 
-                let groupDb = groupInfo.stdout.trim().split(':');
-                if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                    gid = null;
-                } else {
-                    gid = parseInt(groupDb[2]);
-                }
-            })
-            .then(() => {
-                return this._filer.createDirectory(
-                    directory,
-                    { mode: 0o770, uid: uid, gid: gid }
-                );
-            })
-            .then(() => {
-                return this._filer.createDirectory(
-                    path.join(directory, 'data'),
-                    { mode: 0o770, uid: uid, gid: gid }
-                );
-            })
-            .then(() => {
-                return this._filer.createFile(
-                    path.join(directory, 'data', '.bhdir.json'),
-                    { mode: 0o660, uid: uid, gid: gid }
-                );
+                info.dirMode = 0o770;
+                info.fileMode = 0o660;
+                info.user = 'rslsync';
+                info.group = 'bhdir';
+
+                this.directories.set(folder, info);
+
+                return this._startFolder(folder);
             })
             .then(() => {
                 let json = {
@@ -557,7 +464,8 @@ class Directory extends EventEmitter {
 
                 return this._filer.lockWrite(
                     path.join(directory, 'data', '.bhdir.json'),
-                    JSON.stringify(json, undefined, 4) + '\n'
+                    JSON.stringify(json, undefined, 4) + '\n',
+                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
                 );
             })
             .then(() => {
@@ -568,19 +476,12 @@ class Directory extends EventEmitter {
 
                 return this._filer.lockWrite(
                     path.join(directory, 'data', '.root.json'),
-                    JSON.stringify(json, undefined, 4) + '\n'
+                    JSON.stringify(json, undefined, 4) + '\n',
+                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
                 );
             })
             .then(() => {
-                return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
-                    .catch(() => {
-                        // do nothing
-                    });
-            })
-            .then(() => {
-                return this._runner.exec('chmod', [ '-R', 'ug+rwX', directory ]);
-            })
-            .then(() => {
+                this._index.add(folder, info);
                 return { readwrite, readonly };
             })
             .catch(error => {
@@ -594,10 +495,11 @@ class Directory extends EventEmitter {
      * @param {string} folder                       Folder name
      * @param {string} directory                    Folder path
      * @param {string} secret                       Secret
+     * @param {boolean} tmp                         Temporary folder
      * @return {Promise}
      */
-    addFolder(folder, directory, secret) {
-        let configPath, uid, gid;
+    addFolder(folder, directory, secret, tmp) {
+        let configPath, info;
         return this._filer.lockUpdate(
                 this.syncConfig,
                 contents => {
@@ -621,6 +523,9 @@ class Directory extends EventEmitter {
                 }
             )
             .then(() => {
+                if (tmp)
+                    return;
+
                 configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
                 try {
                     fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
@@ -641,46 +546,21 @@ class Directory extends EventEmitter {
                 fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
             })
             .then(() => {
-                return Promise.all([
-                    this._runner.exec('grep', [ '-E', `^rslsync:`, '/etc/passwd' ]),
-                    this._runner.exec('grep', [ '-E', `^bhdir:`, '/etc/group' ]),
-                ]);
-            })
-            .then(([ userInfo, groupInfo ]) => {
-                let userDb = userInfo.stdout.trim().split(':');
-                if (userInfo.code !== 0 || userDb.length !== 7) {
-                    uid = null;
-                } else {
-                    uid = parseInt(userDb[2]);
-                }
+                info.rootDir = directory;
+                info.dataDir = path.join(info.rootDir, 'data');
+                info.stateDir = path.join(info.rootDir, 'state');
 
-                let groupDb = groupInfo.stdout.trim().split(':');
-                if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                    gid = null;
-                } else {
-                    gid = parseInt(groupDb[2]);
-                }
+                info.dirMode = 0o770;
+                info.fileMode = 0o660;
+                info.user = 'rslsync';
+                info.group = 'bhdir';
+
+                this.directories.set(folder, info);
+
+                return this._startFolder(folder);
             })
             .then(() => {
-                return this._filer.createDirectory(
-                    directory,
-                    { mode: 0o770, uid: uid, gid: gid }
-                );
-            })
-            .then(() => {
-                return this._filer.createDirectory(
-                    path.join(directory, 'data'),
-                    { mode: 0o770, uid: uid, gid: gid }
-                );
-            })
-            .then(() => {
-                return this._runner.exec('chown', [ '-R', `rslsync:bhdir`, directory ])
-                    .catch(() => {
-                        // do nothing
-                    });
-            })
-            .then(() => {
-                return this._runner.exec('chmod', [ '-R', 'ug+rwX', directory ]);
+                this._index.add(folder, info);
             });
     }
 
@@ -2058,6 +1938,76 @@ class Directory extends EventEmitter {
         if (!attrs.id)
             attrs.id = uuid.v4();
         return attrs;
+    }
+
+    _startFolder(folder) {
+        let info = this.directories.get(folder);
+        return Promise.resolve()
+            .then(() => {
+                if (!info)
+                    throw new Error(`Unknown folder ${folder}`);
+                info.enabled = false;
+
+                if (!info.group)
+                    return;
+
+                if (os.platform() === 'freebsd')
+                    return this._runner.exec('pw', ['groupadd', info.group]);
+
+                return this._runner.exec('groupadd', [info.group]);
+            })
+            .then(() => {
+                if (!info.group || !this.syncUser)
+                    return;
+
+                if (os.platform() === 'freebsd')
+                    return this._runner.exec('pw', ['groupmod', info.group, '-m', this.syncUser]);
+
+                return this._runner.exec('usermod', ['-G', info.group, '-a', this.syncUser]);
+            })
+            .then(() => {
+                return Promise.all([
+                    this._runner.exec('grep', ['-E', `^${info.user}:`, '/etc/passwd']),
+                    this._runner.exec('grep', ['-E', `^${info.group}:`, '/etc/group']),
+                ]);
+            })
+            .then(([userInfo, groupInfo]) => {
+                let userDb = userInfo.stdout.trim().split(':');
+                if (userInfo.code !== 0 || userDb.length !== 7) {
+                    this._logger.error(`Directory user ${info.user} not found`);
+                    info.user = null;
+                    info.uid = null;
+                } else {
+                    info.uid = parseInt(userDb[2]);
+                }
+
+                let groupDb = groupInfo.stdout.trim().split(':');
+                if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                    this._logger.error(`Directory group ${info.group} not found`);
+                    info.group = null;
+                    info.gid = null;
+                } else {
+                    info.gid = parseInt(groupDb[2]);
+                }
+            })
+            .then(() => {
+                if (!info.user || !info.group)
+                    return;
+
+                return this._filer.createDirectory(
+                        info.dataDir,
+                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                    )
+                    .then(() => {
+                        return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
+                    })
+                    .then(() => {
+                        return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
+                    })
+                    .then(() => {
+                        info.enabled = true;
+                    });
+            });
     }
 
     /**

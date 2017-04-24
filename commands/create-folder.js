@@ -19,16 +19,12 @@ class CreateFolder {
      * @param {object} config           Configuration
      * @param {Runner} runner           Runner service
      * @param {Help} help               Help command
-     * @param {Start} start             Start command
-     * @param {Stop} stop               Stop command
      */
-    constructor(app, config, runner, help, start, stop) {
+    constructor(app, config, runner, help) {
         this._app = app;
         this._config = config;
         this._runner = runner;
         this._help = help;
-        this._start = start;
-        this._stop = stop;
     }
 
     /**
@@ -44,7 +40,7 @@ class CreateFolder {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'runner', 'commands.help', 'commands.start', 'commands.stop' ];
+        return [ 'app', 'config', 'runner', 'commands.help' ];
     }
 
     /**
@@ -96,12 +92,6 @@ class CreateFolder {
                     throw new Error(`Error: ${response.message}`);
 
                 return this._app.info(`ReadWrite: ${response.results[0]}\nReadOnly: ${response.results[1]}`);
-            })
-            .then(() => {
-                return this._stop.terminate();
-            })
-            .then(() => {
-                return this._start.launch();
             })
             .then(() => {
                 return this._runner.exec('/etc/init.d/resilio-sync', [ 'restart' ])

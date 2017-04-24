@@ -19,16 +19,12 @@ class AddFolder {
      * @param {object} config           Configuration
      * @param {Runner} runner           Runner service
      * @param {Help} help               Help command
-     * @param {Start} start             Start command
-     * @param {Stop} stop               Stop command
      */
-    constructor(app, config, runner, help, start, stop) {
+    constructor(app, config, runner, help) {
         this._app = app;
         this._config = config;
         this._runner = runner;
         this._help = help;
-        this._start = start;
-        this._stop = stop;
     }
 
     /**
@@ -44,7 +40,7 @@ class AddFolder {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'runner', 'commands.help', 'commands.start', 'commands.stop' ];
+        return [ 'app', 'config', 'runner', 'commands.help' ];
     }
 
     /**
@@ -65,6 +61,11 @@ class AddFolder {
                 type: 'string',
             })
             .option({
+                name: 'tmp',
+                short: 't',
+                type: 'boolean',
+            })
+            .option({
                 name: 'socket',
                 short: 'z',
                 type: 'string',
@@ -77,6 +78,7 @@ class AddFolder {
         let dir = args.targets[1];
         let secret = args.targets[2];
         let folder = args.options['name'] || path.basename(dir);
+        let tmp = !!args.options['tmp'];
 
         let request = {
             id: uuid.v1(),
@@ -85,6 +87,7 @@ class AddFolder {
                 secret,
                 folder,
                 dir,
+                tmp
             ]
         };
 
@@ -96,12 +99,6 @@ class AddFolder {
 
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
-            })
-            .then(() => {
-                return this._stop.terminate();
-            })
-            .then(() => {
-                return this._start.launch();
             })
             .then(() => {
                 return this._runner.exec('/etc/init.d/resilio-sync', [ 'restart' ])

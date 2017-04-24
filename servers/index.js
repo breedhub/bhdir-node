@@ -76,25 +76,7 @@ class Index extends EventEmitter {
             .then(() => {
                 let promises = [];
                 for (let [ directory, info ] of this._directory.directories) {
-                    this.indexes.set(
-                        directory,
-                        {
-                            enabled: info.enabled,
-                            dataDir: info.dataDir,
-                            dirMode: info.dirMode,
-                            fileMode: info.fileMode,
-                            uid: info.uid,
-                            gid: info.gid,
-                            tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
-                            added: new Map(),
-                            deleted: new Map(),
-                            confirmation: new Map(),
-                            needSave: false,
-                            needLoad: false,
-                            saving: false,
-                            loading: false,
-                        }
-                    );
+                    this.add(directory, info);
                     if (info.enabled) {
                         let exists;
                         try {
@@ -142,6 +124,27 @@ class Index extends EventEmitter {
             });
     }
 
+    add(folder, info) {
+        this.indexes.set(
+            folder,
+            {
+                enabled: info.enabled,
+                dataDir: info.dataDir,
+                dirMode: info.dirMode,
+                fileMode: info.fileMode,
+                uid: info.uid,
+                gid: info.gid,
+                tree: new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys }),
+                added: new Map(),
+                deleted: new Map(),
+                confirmation: new Map(),
+                needSave: false,
+                needLoad: false,
+                saving: false,
+                loading: false,
+            }
+        );
+    }
     /**
      * Build index
      * @param {string} directory                Directory name

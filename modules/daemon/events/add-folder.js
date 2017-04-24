@@ -60,14 +60,15 @@ class AddFolder {
             this.daemon.send(id, data);
         };
 
-        if (message.args.length !== 3)
+        if (message.args.length !== 4)
             return reply(false, 'Invalid arguments list');
 
         let secret = message.args[0];
         let folder = message.args[1];
         let dir = message.args[2];
+        let tmp = message.args[3];
 
-        this.directory.addFolder(folder, dir, secret)
+        this.directory.addFolder(folder, dir, secret, tmp)
             .then(() => {
                 reply(true);
             })
