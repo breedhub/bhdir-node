@@ -379,7 +379,7 @@ class Directory extends EventEmitter {
      * @return {Promise}                            Resolves to { readwrite, readonly }
      */
     createFolder(folder, directory) {
-        let readwrite, readonly, configPath, cwd = process.cwd(), info;
+        let readwrite, readonly, configPath, cwd = process.cwd(), info = {};
         process.chdir('/tmp');
         return this._runner.exec(this.syncBin, [ '--generate-secret' ])
             .then(result => {
@@ -499,7 +499,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     addFolder(folder, directory, secret, tmp) {
-        let configPath, info;
+        let configPath, info = {};
         return this._filer.lockUpdate(
                 this.syncConfig,
                 contents => {
@@ -1989,18 +1989,17 @@ class Directory extends EventEmitter {
                 } else {
                     info.gid = parseInt(groupDb[2]);
                 }
+
+                return this._filer.createDirectory(
+                    info.dataDir,
+                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                )
             })
             .then(() => {
                 if (!info.user || !info.group)
                     return;
 
-                return this._filer.createDirectory(
-                        info.dataDir,
-                        { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                    )
-                    .then(() => {
-                        return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ]);
-                    })
+                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ])
                     .then(() => {
                         return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
                     })
