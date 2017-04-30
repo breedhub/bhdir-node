@@ -52,14 +52,28 @@ class Index extends EventEmitter {
         return [ 'app', 'config', 'logger', 'filer', 'util' ];
     }
 
+    /**
+     * Buffer of Null ID
+     * @type {Buffer}
+     */
     static get nullId() {
         return Buffer.alloc(16, 0);
     }
 
+    /**
+     * Convert string to bignum
+     * @param {string} id
+     * @return {bignum}
+     */
     static binUuid(id) {
         return bignum.fromBuffer(Buffer.from(id.replace(/-/g, ''), 'hex'));
     }
 
+    /**
+     * Compare function for the index tree
+     * @param {*} a
+     * @param {*} b
+     */
     static compareKeys(a, b) {
         return a.cmp(b);
     }
@@ -72,23 +86,7 @@ class Index extends EventEmitter {
     init(name) {
         this._name = name;
 
-        return Promise.resolve()
-            .then(() => {
-                let promises = [];
-                for (let [ folder, info ] of this._directory.folders) {
-                    this.add(folder, info);
-                    if (info.enabled) {
-                        try {
-                            fs.accessSync(path.join(info.dataDir, '.index.1'), fs.constants.F_OK);
-                        } catch (error) {
-                            promises.push(this.build(folder))
-                        }
-                    }
-                }
-
-                if (promises.length)
-                    return Promise.all(promises);
-            });
+        return Promise.resolve();
     }
 
     /**
@@ -116,6 +114,17 @@ class Index extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('index', 'Starting the server');
+
+                return Array.from(this._directory.folders.keys()).reduce(
+                    (prev, cur) => {
+                        return prev.then(() => {
+                            return this.add(cur, this._directory.folders.get(cur));
+                        });
+                    },
+                    Promise.resolve()
+                );
+            })
+            .then(() => {
                 this._saveTimer = setInterval(this.onSaveTimer.bind(this), 1000);
             });
     }
@@ -124,6 +133,7 @@ class Index extends EventEmitter {
      * Add folder
      * @param {string} folder                   Folder name
      * @param {object} info                     Folder info
+     * @return {Promise}
      */
     add(folder, info) {
         this.indexes.set(
@@ -145,6 +155,13 @@ class Index extends EventEmitter {
                 loading: false,
             }
         );
+        try {
+            fs.accessSync(path.join(info.dataDir, '.index.1'), fs.constants.F_OK);
+        } catch (error) {
+            return this.build(folder);
+        }
+
+        return Promise.resolve();
     }
 
     /**
@@ -257,7 +274,7 @@ class Index extends EventEmitter {
                 for (let [ id, confirm ] of info.confirmation) {
                     let search = info.tree.search(id);
                     if (search.length) {
-                        if (!!search[0].data.deleted || ++confirm.counter >= 3) {
+                        if (search[0].data.deleted || ++confirm.counter >= 3) {
                             this._logger.debug('index', `Id ${id} confirmed`);
                             info.confirmation.delete(id);
                         }
@@ -276,10 +293,8 @@ class Index extends EventEmitter {
                 },
                 error => {
                     info.loading = false;
-                    if (error.code === 'ENOENT') {
-                        info.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+                    if (error.code === 'ENOENT')
                         return;
-                    }
                     throw error;
                 }
             )
@@ -411,6 +426,7 @@ class Index extends EventEmitter {
             if (search.length) {
                 this._logger.debug('index', `Deleting ${id}`);
 
+                info.needSave = true;
                 if (info.added.has(id)) {
                     info.tree.delete(id);
                     info.deleted.delete(id);
@@ -418,9 +434,10 @@ class Index extends EventEmitter {
                 } else if (!search[0].data.deleted) {
                     search[0].data.deleted = Math.round(Date.now() / 1000);
                     info.deleted.set(id, search[0].data.deleted);
+                } else {
+                    info.needSave = false;
                 }
 
-                info.needSave = true;
                 return;
             }
         }
@@ -489,7 +506,7 @@ class Index extends EventEmitter {
         node.data = [ { buffer: content, data: JSON.parse(content) } ];
         node.parent = parent;
 
-        if (!!node.data[0].data.deleted)
+        if (node.data[0].data.deleted)
             info.deleted.set(node.key, node.data[0].data.deleted);
 
         node.left = this._deserialize(info, node);
@@ -540,7 +557,7 @@ class Index extends EventEmitter {
                         for (let i = 0; i < files.length; i++) {
                             if (stats[i].isDirectory()) {
                                 promises.push(this._loadDir(root, path.join(dir, files[i]), tree, messages));
-                            } else if (files[i] === '.vars.json') {
+                            } else if (files[i] === '.vars.json' || files[i] === '.root.json') {
                                 promises.push(
                                     this._filer.lockRead(path.join(root, dir, files[i]))
                                         .then(contents => {
@@ -551,10 +568,11 @@ class Index extends EventEmitter {
                                                 return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
                                             }
 
-                                            for (let key of Object.keys(json)) {
-                                                if (!json[key])
+                                            let variables = (files[i] === '.root.json' ? { '/': json } : json);
+                                            for (let key of Object.keys(variables)) {
+                                                if (!variables[key])
                                                     continue;
-                                                let varId = json[key]['id'];
+                                                let varId = variables[key]['id'];
                                                 if (!this._util.isUuid(varId))
                                                     continue;
 

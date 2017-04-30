@@ -55,12 +55,6 @@ class Daemon {
 
         let server = this._app.get('servers').get('daemon');
 
-        let createFolder = this._app.get('modules.daemon.events.createFolder');
-        server.on('create_folder', createFolder.handle.bind(createFolder));
-
-        let addFolder = this._app.get('modules.daemon.events.addFolder');
-        server.on('add_folder', addFolder.handle.bind(addFolder));
-
         let ls = this._app.get('modules.daemon.events.ls');
         server.on('ls', ls.handle.bind(ls));
 

@@ -114,7 +114,7 @@ class Directory extends EventEmitter {
 
                 let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
                 for (let group of Object.keys(bhdirConfig)) {
-                    let index = group.indexOf(':directory');
+                    let index = group.indexOf(':folder');
                     if (index === -1)
                         continue;
 
@@ -151,17 +151,8 @@ class Directory extends EventEmitter {
                 this.socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '600', 8);
                 if (isNaN(this.socketMode))
                     this.socketMode = 0o600;
-                this.socketUser = bhdirConfig.socket && bhdirConfig.socket.user;
-                this.socketGroup = bhdirConfig.socket && bhdirConfig.socket.group;
-
-                return Array.from(this.folders.keys()).reduce(
-                    (prev, cur) => {
-                        return prev.then(() => {
-                            return this._startFolder(cur);
-                        });
-                    },
-                    Promise.resolve()
-                )
+                this.socketUser = (bhdirConfig.socket && bhdirConfig.socket.user) || 'root';
+                this.socketGroup = (bhdirConfig.socket && bhdirConfig.socket.group) || (os.platform() === 'freebsd' ? 'wheel' : 'root');
             })
             .then(() => {
                 return Promise.all([
@@ -215,17 +206,29 @@ class Directory extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('directory', 'Starting the server');
+
+                return Array.from(this.folders.keys()).reduce(
+                    (prev, cur) => {
+                        return prev.then(() => {
+                            return this._startFolder(cur);
+                        });
+                    },
+                    Promise.resolve()
+                )
+            })
+            .then(() => {
                 return this.createFolder(
                     '.config',
-                    '/var/lib/bhdir/.config',
                     {
                         default: 'no',
+                        root: '/var/lib/bhdir/.config',
                         user: 'root',
                         group: 'bhdir',
                         dir_mode: '700',
                         file_mode: '600',
                         cache_ttl: '300'
-                    }
+                    },
+                    true
                 );
             });
     }
@@ -331,23 +334,12 @@ class Directory extends EventEmitter {
     /**
      * Create folder
      * @param {string} folder                       Folder name
-     * @param {string} directory                    Folder path
-     * @param {object} [config]                     Folder config as in config file
+     * @param {object} config                       Folder config as in config file
+     * @param {boolean} initialize=false            Initialize folder with files
      * @return {Promise}                            Resolves to { readwrite, readonly }
      */
-    createFolder(folder, directory, config) {
+    createFolder(folder, config, initialize = false) {
         let info = { enabled: false };
-        if (!config) {
-            config = {
-                default: 'no',
-                root: directory,
-                user: 'root',
-                group: 'bhdir',
-                dir_mode: '770',
-                file_mode: '660',
-                cache_ttl: '300'
-            };
-        }
 
         return Promise.resolve()
             .then(() => {
@@ -359,12 +351,19 @@ class Directory extends EventEmitter {
                 }
 
                 let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
-                bhdirConfig[`${folder.replace(/\./g, '\\.')}:directory`] = config;
+                bhdirConfig[`${folder.replace(/\./g, '\\.')}:folder`] = config;
                 fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
             })
             .then(() => {
-                info.rootDir = directory;
+                info.rootDir = config.root;
                 info.dataDir = path.join(info.rootDir, 'data');
+
+                try {
+                    fs.accessSync(info.dataDir, fs.constants.F_OK);
+                    initialize = false;
+                } catch (error) {
+                    // do nothing
+                }
 
                 info.dirMode = parseInt(config.dir_mode, 8);
                 info.fileMode = parseInt(config.file_mode, 8);
@@ -372,7 +371,9 @@ class Directory extends EventEmitter {
                 info.group = config.group;
 
                 this.folders.set(folder, info);
-                this._index.add(folder, info);
+
+                if (config.default)
+                    this.default = folder;
 
                 return this._filer.createDirectory(
                     info.dataDir,
@@ -380,107 +381,37 @@ class Directory extends EventEmitter {
                 );
             })
             .then(() => {
-                let json = {
-                    directory: {
-                        format: 2,
-                        upgrading: false,
-                    },
-                };
-
-                return this._filer.lockWrite(
-                    path.join(directory, 'data', '.bhdir.json'),
-                    JSON.stringify(json, undefined, 4) + '\n',
-                    { mode: info.fileMode }
-                );
-            })
-            .then(() => {
-                let json = {
-                    hdepth: 1,
-                    fdepth: 1,
-                };
-
-                return this._filer.lockWrite(
-                    path.join(directory, 'data', '.root.json'),
-                    JSON.stringify(json, undefined, 4) + '\n',
-                    { mode: info.fileMode }
-                );
-            })
-            .then(() => {
-                return this._startFolder(folder);
-            });
-    }
-
-    /**
-     * Add folder
-     * @param {string} folder                       Folder name
-     * @param {string} directory                    Folder path
-     * @param {string} secret                       Secret
-     * @param {boolean} tmp                         Temporary folder
-     * @return {Promise}
-     */
-    addFolder(folder, directory, secret, tmp) {
-        let configPath, info = {};
-        return this._filer.lockUpdate(
-                this.syncConfig,
-                contents => {
-                    contents = contents.replace(/\/\/.*/g, '');
-                    contents = contents.replace(/\/\*[\s\S]*?\*\//g, '');
-                    let json = JSON.parse(contents);
-                    if (!json.shared_folders)
-                        json.shared_folders = [];
-                    json.shared_folders.push(
-                        {
-                            secret: secret,
-                            dir: directory,
-                            use_relay_server: true,
-                            search_lan: true,
-                            use_sync_trash: false,
-                            overwrite_changes: false,
-                            selective_sync: false,
-                        }
-                    );
-                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                }
-            )
-            .then(() => {
-                if (tmp)
+                if (!initialize)
                     return;
 
-                configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
-                try {
-                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
-                } catch (error) {
-                    throw new Error('Could not read bhdir.conf');
-                }
-
-                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
-                bhdirConfig[`${folder.replace(/\./g, '\\.')}:directory`] = {
-                    default: 'no',
-                    root: directory,
-                    user: 'rslsync',
-                    group: 'bhdir',
-                    dir_mode: '770',
-                    file_mode: '660',
-                    cache_ttl: '300'
-                };
-                fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+                return this._filer.lockWrite(
+                        path.join(info.dataDir, '.bhdir.json'),
+                        JSON.stringify({
+                            directory: {
+                                format: 2,
+                                upgrading: false,
+                            },
+                        }, undefined, 4) + '\n',
+                        { mode: info.fileMode }
+                    );
             })
             .then(() => {
-                info.rootDir = directory;
-                info.dataDir = path.join(info.rootDir, 'data');
-                info.stateDir = path.join(info.rootDir, 'state');
-
-                info.dirMode = 0o770;
-                info.fileMode = 0o660;
-                info.user = 'rslsync';
-                info.group = 'bhdir';
-
-                this.directories.set(folder, info);
-
                 return this._startFolder(folder);
             })
             .then(() => {
-                this._index.add(folder, info);
+                if (!initialize)
+                    return;
+
+                return this.set(`${folder}:/`, null, null)
+                    .then(() => {
+                        return this.setHDepth(`${folder}:/`, 1);
+                    })
+                    .then(() => {
+                        return this.setFDepth(`${folder}:/`, 1);
+                    })
+            })
+            .then(() => {
+                return this._index.add(folder, info);
             });
     }
 
@@ -517,25 +448,20 @@ class Directory extends EventEmitter {
                             };
                         }
 
-                        let promise;
-
-                        let waiting = this.waiting.get(variable);
-                        if (waiting && (!this.isEqual(waiting.value, info.value) || waiting.mtime !== info.mtime)) {
-                            promise = this.notify(variable, info);
-                            waiting = null;
-                        }
-                        if (!waiting) {
-                            waiting = info;
-                            waiting.handlers = new Set();
-                            this.waiting.set(variable, waiting);
-                        }
-
                         return Promise.resolve()
                             .then(() => {
-                                if (promise)
-                                    return promise;
+                                let waiting = this.waiting.get(variable);
+                                if (waiting)
+                                    return this.notify(variable, info);
                             })
                             .then(() => {
+                                let waiting = this.waiting.get(variable);
+                                if (!waiting) {
+                                    waiting = info;
+                                    waiting.handlers = new Set();
+                                    this.waiting.set(variable, waiting);
+                                }
+
                                 return new Promise((resolve) => {
                                     let cb = (timeout, value) => {
                                         this._logger.debug('directory', `Wait on ${variable} timeout: ${timeout}`);
@@ -543,7 +469,7 @@ class Directory extends EventEmitter {
                                     };
                                     waiting.handlers.add(cb);
                                     if (timeout)
-                                        setTimeout(() => { cb(true, info.value); }, timeout);
+                                        setTimeout(() => { cb(true, waiting.value); }, timeout);
                                 });
                             });
                     });
@@ -585,7 +511,7 @@ class Directory extends EventEmitter {
                 variable = `${folder}:${filename}`;
 
                 let waiting = this.waiting.get(variable);
-                if (!waiting || (this.isEqual(waiting.value, info.value) && waiting.mtime === info.mtime))
+                if (!waiting || !waiting.handlers.size || (this.isEqual(waiting.value, info.value) && waiting.mtime === info.mtime))
                     return;
 
                 this._logger.debug('directory', `Notifying ${variable}`);
@@ -697,7 +623,6 @@ class Directory extends EventEmitter {
                         Promise.resolve()
                     )
                     .then(() => {
-
                         let info = this.folders.get(folder);
                         let name = path.basename(filename);
                         let directory = path.join(info.dataDir, path.dirname(filename));
@@ -831,9 +756,28 @@ class Directory extends EventEmitter {
 
                 let info = this.folders.get(folder);
                 if (type === 'history') {
-                    return this._filer.lockRead(path.join(info.dataDir, attr))
-                        .then(contents => {
-                            return JSON.parse(contents).variable;
+                    return new Promise((resolve, reject) => {
+                            let tries = 0;
+                            let retry = () => {
+                                if (++tries > this.constructor.dataRetryMax)
+                                    return reject(new Error(`Max retries reached while getting history item of ${variable}`));
+
+                                this._filer.lockRead(path.join(info.dataDir, attr))
+                                    .then(contents => {
+                                        try {
+                                            resolve(JSON.parse(contents));
+                                        } catch (error) {
+                                            setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                        }
+                                    })
+                                    .catch(error => {
+                                        reject(error);
+                                    });
+                            };
+                            retry();
+                        })
+                        .then(json => {
+                            return json.variable;
                         });
                 }
 
@@ -932,12 +876,6 @@ class Directory extends EventEmitter {
                                 { mode: info.dirMode, uid: info.uid, gid: info.gid }
                             )
                             .then(() => {
-                                try {
-                                    fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
-                                } catch (error) {
-                                    return;
-                                }
-
                                 return new Promise((resolve, reject) => {
                                     let tries = 0;
                                     let retry = () => {
@@ -1710,9 +1648,27 @@ class Directory extends EventEmitter {
                         if (!filename)
                             return null;
 
-                        return this._filer.lockRead(filename)
-                            .then(contents => {
-                                let json = JSON.parse(contents);
+                        return new Promise((resolve, reject) => {
+                                let tries = 0;
+                                let retry = () => {
+                                    if (++tries > this.constructor.dataRetryMax)
+                                        return reject(new Error(`Max retries reached while getting download item of ${variable}`));
+
+                                    this._filer.lockRead(filename)
+                                        .then(contents => {
+                                            try {
+                                                resolve(JSON.parse(contents));
+                                            } catch (error) {
+                                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
+                                            }
+                                        })
+                                        .catch(error => {
+                                            reject(error);
+                                        });
+                                };
+                                retry();
+                            })
+                            .then(json => {
                                 return this._filer.lockReadBuffer(path.join(info.dataDir, json.bin));
                             });
                     });
@@ -1862,7 +1818,13 @@ class Directory extends EventEmitter {
         return attrs;
     }
 
+    /**
+     * Start using folder if it is ready
+     * @param {string} folder
+     * @return {Promise}
+     */
     _startFolder(folder) {
+        this._logger.debug('directory', `Starting folder ${folder}`);
         let info = this.folders.get(folder);
         return Promise.resolve()
             .then(() => {
@@ -1902,22 +1864,21 @@ class Directory extends EventEmitter {
                 } else {
                     info.gid = parseInt(groupDb[2]);
                 }
-
-                if (!info.user || !info.group)
-                    return;
-
+            })
+            .then(() => {
                 try {
-                    fs.accessSync(info.dataDir, fs.constants.F_OK);
+                    fs.accessSync(path.join(info.dataDir, '.bhdir.json'), fs.constants.F_OK);
+                    info.enabled = true;
                 } catch (error) {
-                    return;
+                    // do nothing
                 }
+
+                if (!info.enabled || !info.user || !info.group)
+                    return;
 
                 return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ])
                     .then(() => {
                         return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
-                    })
-                    .then(() => {
-                        info.enabled = true;
                     });
             });
     }

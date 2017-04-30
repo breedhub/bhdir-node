@@ -69,7 +69,7 @@ class Ls {
             return reply(false, 'Invalid arguments list');
 
         let name = message.args[0];
-        if (name !== '/' && !this.directory.validatePath(name))
+        if (!this.directory.validatePath(name))
             return reply(false, 'Invalid path');
 
         this.directory.ls(name)
