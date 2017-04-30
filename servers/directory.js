@@ -148,74 +148,17 @@ class Directory extends EventEmitter {
                         this.default = name;
                 }
 
-                this.socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '0', 8);
+                this.socketMode = parseInt((bhdirConfig.socket && bhdirConfig.socket.mode) || '600', 8);
+                if (isNaN(this.socketMode))
+                    this.socketMode = 0o600;
                 this.socketUser = bhdirConfig.socket && bhdirConfig.socket.user;
                 this.socketGroup = bhdirConfig.socket && bhdirConfig.socket.group;
 
                 return Array.from(this.folders.keys()).reduce(
                     (prev, cur) => {
-                        let info = this.folders.get(cur);
-                        try {
-                            fs.accessSync(info.dataDir, fs.constants.F_OK);
-                            info.enabled = true;
-                        } catch (error) {
-                            // do nothing
-                        }
-                        return Promise.all([
-                                this._runner.exec('grep', ['-E', `^${info.user}:`, '/etc/passwd']),
-                                this._runner.exec('grep', ['-E', `^${info.group}:`, '/etc/group']),
-                            ])
-                            .then(([userInfo, groupInfo]) => {
-                                let userDb = userInfo.stdout.trim().split(':');
-                                if (userInfo.code !== 0 || userDb.length !== 7) {
-                                    this._logger.error(`Directory user ${info.user} not found`);
-                                    this.folders.delete(cur);
-                                    return;
-                                } else {
-                                    info.uid = parseInt(userDb[2]);
-                                }
-
-                                let groupDb = groupInfo.stdout.trim().split(':');
-                                if (groupInfo.code !== 0 || groupDb.length !== 4) {
-                                    this._logger.error(`Directory group ${info.group} not found`);
-                                    this.folders.delete(cur);
-                                    return;
-                                } else {
-                                    info.gid = parseInt(groupDb[2]);
-                                }
-
-                                if (!info.enabled)
-                                    return;
-
-                                return this._filer.lockUpdate(
-                                        path.join(info.dataDir, '.bhdir.json'),
-                                        contents => {
-                                            let json;
-                                            try {
-                                                json = JSON.parse(contents);
-                                                if (typeof json !== 'object')
-                                                    return Promise.reject(new Error(`.bhdir.json of ${repo} is damaged`));
-                                            } catch (error) {
-                                                json = {};
-                                            }
-
-                                            if (!json.directory)
-                                                json.directory = {};
-                                            if (!json.directory.format)
-                                                json.directory.format = 2;
-                                            if (!json.directory.upgrading)
-                                                json.directory.upgrading = false;
-
-                                            info.enabled = (json.directory.format === 2);
-
-                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                        }
-                                    )
-                                    .then(() => {
-                                        if (!info.enabled)
-                                            this._logger.info(`Unsupported directory format of ${cur} - ignoring...`);
-                                    });
-                            });
+                        return prev.then(() => {
+                            return this._startFolder(cur);
+                        });
                     },
                     Promise.resolve()
                 )
@@ -272,7 +215,18 @@ class Directory extends EventEmitter {
             )
             .then(() => {
                 this._logger.debug('directory', 'Starting the server');
-                return this.create('.config');
+                return this.createFolder(
+                    '.config',
+                    '/var/lib/bhdir/.config',
+                    {
+                        default: 'no',
+                        user: 'root',
+                        group: 'bhdir',
+                        dir_mode: '700',
+                        file_mode: '600',
+                        cache_ttl: '300'
+                    }
+                );
             });
     }
 
@@ -296,10 +250,9 @@ class Directory extends EventEmitter {
     /**
      * Validate variable path
      * @param {string} filename                     Variable path
-     * @param {boolean} [allowRoot=false]           Allow root as variable
      * @return {boolean}
      */
-    validatePath(filename, allowRoot = false) {
+    validatePath(filename) {
         if (typeof filename !== 'string' || !filename.length)
             return false;
 
@@ -324,7 +277,7 @@ class Directory extends EventEmitter {
         if (!info || !info.enabled)
             return false;
 
-        if (allowRoot && name === '/')
+        if (name === '/')
             return true;
 
         for (let sub of name.split('/').slice(1)) {
@@ -354,12 +307,11 @@ class Directory extends EventEmitter {
     /**
      * Get directory and filename from variable name
      * @param {string} variable                     Variable name
-     * @param {boolean} [allowRoot=false]           Allow root as variable
-     * @return {Promise}                            Resolves to [ folder, filename ]
+     * @return {Promise}                            Resolves to [ directory, filename ]
      */
-    parseVariable(variable, allowRoot = false) {
+    parseVariable(variable) {
         return new Promise((resolve, reject) => {
-            if (!this.validatePath(variable, allowRoot))
+            if (!this.validatePath(variable))
                 return reject(new Error('Invalid folder or path'));
 
             let folder, name;
@@ -378,40 +330,158 @@ class Directory extends EventEmitter {
 
     /**
      * Create folder
-     * @param {string} folder
-     * @return {Promise}
+     * @param {string} folder                       Folder name
+     * @param {string} directory                    Folder path
+     * @param {object} [config]                     Folder config as in config file
+     * @return {Promise}                            Resolves to { readwrite, readonly }
      */
-    create(folder) {
-        let info = this.folders.get(folder);
-        if (!info)
-            return Promise.resolve();
-
-        try {
-            fs.accessSync(info.dataDir, fs.constants.F_OK);
-            return Promise.resolve();
-        } catch (error) {
-            // do nothing
+    createFolder(folder, directory, config) {
+        let info = { enabled: false };
+        if (!config) {
+            config = {
+                default: 'no',
+                root: directory,
+                user: 'root',
+                group: 'bhdir',
+                dir_mode: '770',
+                file_mode: '660',
+                cache_ttl: '300'
+            };
         }
 
-        return this._filer.createDirectory(
-                info.dataDir,
-                { mode: info.dirMode, uid: info.uid, gid: info.gid }
-            )
+        return Promise.resolve()
             .then(() => {
-                return this._filer.lockWrite(
-                    path.join(info.dataDir, '.bhdir.json'),
-                    JSON.stringify({
-                        directory: {
-                            format: 2,
-                            upgrading: false,
-                        }
-                    }),
-                    { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                let configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                bhdirConfig[`${folder.replace(/\./g, '\\.')}:directory`] = config;
+                fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+            })
+            .then(() => {
+                info.rootDir = directory;
+                info.dataDir = path.join(info.rootDir, 'data');
+
+                info.dirMode = parseInt(config.dir_mode, 8);
+                info.fileMode = parseInt(config.file_mode, 8);
+                info.user = config.user;
+                info.group = config.group;
+
+                this.folders.set(folder, info);
+                this._index.add(folder, info);
+
+                return this._filer.createDirectory(
+                    info.dataDir,
+                    { mode: info.dirMode }
                 );
             })
             .then(() => {
-                info.enabled = true;
+                let json = {
+                    directory: {
+                        format: 2,
+                        upgrading: false,
+                    },
+                };
+
+                return this._filer.lockWrite(
+                    path.join(directory, 'data', '.bhdir.json'),
+                    JSON.stringify(json, undefined, 4) + '\n',
+                    { mode: info.fileMode }
+                );
             })
+            .then(() => {
+                let json = {
+                    hdepth: 1,
+                    fdepth: 1,
+                };
+
+                return this._filer.lockWrite(
+                    path.join(directory, 'data', '.root.json'),
+                    JSON.stringify(json, undefined, 4) + '\n',
+                    { mode: info.fileMode }
+                );
+            })
+            .then(() => {
+                return this._startFolder(folder);
+            });
+    }
+
+    /**
+     * Add folder
+     * @param {string} folder                       Folder name
+     * @param {string} directory                    Folder path
+     * @param {string} secret                       Secret
+     * @param {boolean} tmp                         Temporary folder
+     * @return {Promise}
+     */
+    addFolder(folder, directory, secret, tmp) {
+        let configPath, info = {};
+        return this._filer.lockUpdate(
+                this.syncConfig,
+                contents => {
+                    contents = contents.replace(/\/\/.*/g, '');
+                    contents = contents.replace(/\/\*[\s\S]*?\*\//g, '');
+                    let json = JSON.parse(contents);
+                    if (!json.shared_folders)
+                        json.shared_folders = [];
+                    json.shared_folders.push(
+                        {
+                            secret: secret,
+                            dir: directory,
+                            use_relay_server: true,
+                            search_lan: true,
+                            use_sync_trash: false,
+                            overwrite_changes: false,
+                            selective_sync: false,
+                        }
+                    );
+                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                }
+            )
+            .then(() => {
+                if (tmp)
+                    return;
+
+                configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
+                try {
+                    fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
+                } catch (error) {
+                    throw new Error('Could not read bhdir.conf');
+                }
+
+                let bhdirConfig = ini.parse(fs.readFileSync(path.join(configPath, 'bhdir.conf'), 'utf8'));
+                bhdirConfig[`${folder.replace(/\./g, '\\.')}:directory`] = {
+                    default: 'no',
+                    root: directory,
+                    user: 'rslsync',
+                    group: 'bhdir',
+                    dir_mode: '770',
+                    file_mode: '660',
+                    cache_ttl: '300'
+                };
+                fs.writeFileSync(path.join(configPath, 'bhdir.conf'), ini.stringify(bhdirConfig));
+            })
+            .then(() => {
+                info.rootDir = directory;
+                info.dataDir = path.join(info.rootDir, 'data');
+                info.stateDir = path.join(info.rootDir, 'state');
+
+                info.dirMode = 0o770;
+                info.fileMode = 0o660;
+                info.user = 'rslsync';
+                info.group = 'bhdir';
+
+                this.directories.set(folder, info);
+
+                return this._startFolder(folder);
+            })
+            .then(() => {
+                this._index.add(folder, info);
+            });
     }
 
     /**
@@ -434,7 +504,7 @@ class Directory extends EventEmitter {
             })
             .then(([ folder, filename ]) => {
                 if (!folder || !filename)
-                    return;
+                    return [ false, null ];
 
                 variable = `${folder}:${filename}`;
 
@@ -476,7 +546,7 @@ class Directory extends EventEmitter {
                                         setTimeout(() => { cb(true, info.value); }, timeout);
                                 });
                             });
-                    })
+                    });
             })
             .catch(error => {
                 this._logger.error(new WError(error, 'Directory.wait()'));
@@ -535,7 +605,7 @@ class Directory extends EventEmitter {
     ls(variable) {
         this._logger.debug('directory', `Listing ${variable}`);
 
-        return this.parseVariable(variable, true)
+        return this.parseVariable(variable)
             .then(([ folder, filename ]) => {
                 let info = this.folders.get(folder);
                 let directory = path.join(info.dataDir, filename);
@@ -654,7 +724,7 @@ class Directory extends EventEmitter {
                                             .then(() => {
                                                 let exists;
                                                 try {
-                                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                                    fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
                                                     exists = true;
                                                 } catch (error) {
                                                     exists = false;
@@ -668,7 +738,7 @@ class Directory extends EventEmitter {
 
                                                         let success = false;
                                                         this._filer.lockUpdate(
-                                                                path.join(directory, '.vars.json'),
+                                                                path.join(directory, filename === '/' ? '.root.json' : '.vars.json'),
                                                                 contents => {
                                                                     let json;
                                                                     try {
@@ -680,7 +750,10 @@ class Directory extends EventEmitter {
                                                                     }
 
                                                                     success = true;
-                                                                    json[name] = attrs;
+                                                                    if (name)
+                                                                        json[name] = attrs;
+                                                                    else
+                                                                        json = attrs;
                                                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                                 },
                                                                 { mode: info.fileMode, uid: info.uid, gid: info.gid }
@@ -774,7 +847,7 @@ class Directory extends EventEmitter {
 
                         let exists;
                         try {
-                            fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                            fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
                             exists = true;
                         } catch (error) {
                             exists = false;
@@ -791,7 +864,7 @@ class Directory extends EventEmitter {
                                         if (++tries > this.constructor.dataRetryMax)
                                             return reject(new Error(`Max retries reached while getting ${variable}`));
 
-                                        this._filer.lockRead(path.join(directory, '.vars.json'))
+                                        this._filer.lockRead(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'))
                                             .then(contents => {
                                                 try {
                                                     resolve(JSON.parse(contents));
@@ -807,7 +880,7 @@ class Directory extends EventEmitter {
                                 });
                             })
                             .then(json => {
-                                let result = (typeof json[name] === 'undefined' ? null : json[name]);
+                                let result = name ? (typeof json[name] === 'undefined' ? null : json[name]) : json;
                                 if (!cacheResult)
                                     return result;
 
@@ -860,7 +933,7 @@ class Directory extends EventEmitter {
                             )
                             .then(() => {
                                 try {
-                                    fs.accessSync(path.join(directory, '.vars.json'), fs.constants.F_OK);
+                                    fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
                                 } catch (error) {
                                     return;
                                 }
@@ -873,7 +946,7 @@ class Directory extends EventEmitter {
 
                                         let success = false;
                                         this._filer.lockUpdate(
-                                                path.join(directory, '.vars.json'),
+                                                path.join(directory, filename === '/' ? '.root.json' : '.vars.json'),
                                                 contents => {
                                                     let json;
                                                     try {
@@ -883,12 +956,17 @@ class Directory extends EventEmitter {
                                                     }
 
                                                     success = true;
-                                                    if (!json[name])
-                                                        json[name] = {};
-                                                    this._initAttrs(json[name]);
-                                                    json[name].value = null;
-
-                                                    id = json[name]['id'];
+                                                    if (name) {
+                                                        if (!json[name])
+                                                            json[name] = {};
+                                                        this._initAttrs(json[name]);
+                                                        json[name].value = null;
+                                                        id = json[name]['id'];
+                                                    } else {
+                                                        this._initAttrs(json);
+                                                        json.value = null;
+                                                        id = json['id'];
+                                                    }
                                                     return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
                                                 },
                                                 { mode: info.fileMode, uid: info.uid, gid: info.gid }
@@ -938,7 +1016,7 @@ class Directory extends EventEmitter {
                 return [ search.folder, search.path ];
             })
             .then(([ folder, filename ]) => {
-                if (!folder || !filename)
+                if (!folder || !filename || filename === '/')
                     return;
 
                 variable = `${folder}:${filename}`;
@@ -1000,6 +1078,9 @@ class Directory extends EventEmitter {
                 if (!info)
                     info = {};
 
+                if (this.isEqual(info[name], value))
+                    return null;
+
                 this._initAttrs(info);
                 info[name] = value;
                 return this.set(variable, info);
@@ -1050,7 +1131,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     setHDepth(variable, value) {
-        if (value === null)
+        if (!value)
             return this.delAttr(variable, 'hdepth');
 
         return this.setAttr(variable, 'hdepth', value)
@@ -1122,13 +1203,10 @@ class Directory extends EventEmitter {
                             return [search.folder, search.path];
                         })
                         .then(([ folder, filename ]) => {
-                            if (!folder || !filename)
+                            if (!folder || !filename || filename === '/')
                                 return null;
 
                             let dir = path.dirname(filename);
-                            if (dir === '/')
-                                return null;
-
                             return getDepth(`${folder}:${dir}`);
                         });
                 });
@@ -1198,7 +1276,7 @@ class Directory extends EventEmitter {
                             numbers.push(parseInt(result[1]));
                         }
                         if (numbers.length) {
-                            numbers.sort();
+                            numbers.sort((a, b) => { return a - b; });
                             name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
                         } else {
                             name = '0001';
@@ -1262,7 +1340,7 @@ class Directory extends EventEmitter {
 
                 let info = this.folders.get(folder);
                 let re = /^(\d+)\.json$/;
-                let files = [];
+                let files = [], dirs = [];
                 return this._filer.process(
                         path.join(info.dataDir, filename, '.history'),
                         file => {
@@ -1283,23 +1361,27 @@ class Directory extends EventEmitter {
                             if (this._util.isUuid(files[i]['id']))
                                 this._index.del(this._index.constructor.binUuid(files[i]['id']));
                             promises.push(this._filer.remove(files[i]['path']));
+
+                            let dir = path.dirname(files[i]['path']);
+                            if (path.basename(dir) !== '.history' && dirs.indexOf(dir) === -1)
+                                dirs.push(dir);
                         }
 
                         if (promises.length)
                             return Promise.all(promises);
                     })
                     .then(() => {
-                        let deleteEmpty = files => {
+                        let deleteEmpty = dirs => {
                             let todo = [];
-                            return files.reduce(
+                            return dirs.reduce(
                                     (prev, cur) => {
                                         return prev.then(() => {
                                             try {
-                                                let dir = path.dirname(cur.path);
-                                                if (!fs.readdirSync(dir).length) {
+                                                if (!fs.readdirSync(cur).length) {
+                                                    let dir = path.dirname(cur);
                                                     if (path.basename(dir) !== '.history' && todo.indexOf(dir) === -1)
                                                         todo.push(dir);
-                                                    return this._filer.remove(dir);
+                                                    return this._filer.remove(cur);
                                                 }
                                             } catch (error) {
                                                 // do nothing
@@ -1314,7 +1396,7 @@ class Directory extends EventEmitter {
                                         return deleteEmpty(todo);
                                 })
                         };
-                        return deleteEmpty(files);
+                        return deleteEmpty(dirs);
                     });
             });
     }
@@ -1326,7 +1408,7 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     setFDepth(variable, value) {
-        if (value === null)
+        if (!value)
             return this.delAttr(variable, 'fdepth');
 
         return this.setAttr(variable, 'fdepth', value)
@@ -1398,13 +1480,10 @@ class Directory extends EventEmitter {
                             return [ search.folder, search.path ]
                         })
                         .then(([ folder, filename ]) => {
-                            if (!folder || !filename)
+                            if (!folder || !filename || filename === '/')
                                 return null;
 
                             let dir = path.dirname(filename);
-                            if (dir === '/')
-                                return null;
-
                             return getDepth(`${folder}:${dir}`);
                         });
                 })
@@ -1480,7 +1559,7 @@ class Directory extends EventEmitter {
                                 numbers.push(number);
                         }
                         if (numbers.length) {
-                            numbers.sort();
+                            numbers.sort((a, b) => { return a - b; });
                             name = this._padNumber(numbers[numbers.length - 1] + 1, 4);
                         } else {
                             name = '0001';
@@ -1581,22 +1660,30 @@ class Directory extends EventEmitter {
                             let reJson = /^(\d+)\.json$/, reDir = /^(\d+)$/;
                             for (let file of files) {
                                 let result = reJson.exec(file);
-                                if (result)
-                                    numbers.push(result[1]);
+                                if (result) {
+                                    numbers.push({
+                                        num: parseInt(result[1]),
+                                        str: result[1],
+                                    });
+                                }
                             }
                             if (numbers.length) {
-                                numbers.sort();
-                                resolve(path.join(dir, numbers[numbers.length - 1] + '.json'));
+                                numbers.sort((a, b) => { return a.num - b.num; });
+                                resolve(path.join(dir, numbers[numbers.length - 1].str + '.json'));
                             } else {
                                 numbers = [];
                                 for (let file of files) {
                                     let result = reDir.exec(file);
-                                    if (result)
-                                        numbers.push(result[1]);
+                                    if (result) {
+                                        numbers.push({
+                                            num: parseInt(result[1]),
+                                            str: result[1],
+                                        });
+                                    }
                                 }
                                 if (numbers.length) {
-                                    numbers.sort();
-                                    name = numbers[numbers.length - 1];
+                                    numbers.sort((a, b) => { return a.num - b.num; });
+                                    name = numbers[numbers.length - 1].str;
                                     loadDir(path.join(dir, name))
                                         .then(
                                             filename => {
@@ -1659,7 +1746,7 @@ class Directory extends EventEmitter {
 
                 let info = this.folders.get(folder);
                 let re = /^(\d+)\.json$/;
-                let files = [];
+                let files = [], dirs = [];
                 return this._filer.process(
                         path.join(info.dataDir, filename, '.files'),
                         file => {
@@ -1694,23 +1781,27 @@ class Directory extends EventEmitter {
                                     this._filer.remove(files[i]['bin']),
                                 ])
                             );
+
+                            let dir = path.dirname(files[i]['path']);
+                            if (path.basename(dir) !== '.files' && dirs.indexOf(dir) === -1)
+                                dirs.push(dir);
                         }
 
                         if (promises.length)
                             return Promise.all(promises);
                     })
                     .then(() => {
-                        let deleteEmpty = files => {
+                        let deleteEmpty = dirs => {
                             let todo = [];
-                            return files.reduce(
+                            return dirs.reduce(
                                     (prev, cur) => {
                                         return prev.then(() => {
                                             try {
-                                                let dir = path.dirname(cur.path);
-                                                if (!fs.readdirSync(dir).length) {
+                                                if (!fs.readdirSync(cur).length) {
+                                                    let dir = path.dirname(cur);
                                                     if (path.basename(dir) !== '.files' && todo.indexOf(dir) === -1)
                                                         todo.push(dir);
-                                                    return this._filer.remove(dir);
+                                                    return this._filer.remove(cur);
                                                 }
                                             } catch (error) {
                                                 // do nothing
@@ -1725,7 +1816,7 @@ class Directory extends EventEmitter {
                                         return deleteEmpty(todo);
                                 })
                         };
-                        return deleteEmpty(files);
+                        return deleteEmpty(dirs);
                     });
             });
     }
@@ -1769,6 +1860,66 @@ class Directory extends EventEmitter {
         if (!attrs.id)
             attrs.id = uuid.v4();
         return attrs;
+    }
+
+    _startFolder(folder) {
+        let info = this.folders.get(folder);
+        return Promise.resolve()
+            .then(() => {
+                if (!info)
+                    throw new Error(`Unknown folder ${folder}`);
+                info.enabled = false;
+
+                if (!info.group)
+                    return;
+
+                if (os.platform() === 'freebsd')
+                    return this._runner.exec('pw', [ 'groupadd', info.group ]);
+
+                return this._runner.exec('groupadd', [ info.group ]);
+            })
+            .then(() => {
+                return Promise.all([
+                    this._runner.exec('grep', [ '-E', `^${info.user}:`, '/etc/passwd' ]),
+                    this._runner.exec('grep', [ '-E', `^${info.group}:`, '/etc/group' ]),
+                ]);
+            })
+            .then(([userInfo, groupInfo]) => {
+                let userDb = userInfo.stdout.trim().split(':');
+                if (userInfo.code !== 0 || userDb.length !== 7) {
+                    this._logger.error(`Directory user ${info.user} not found`);
+                    info.user = null;
+                    info.uid = null;
+                } else {
+                    info.uid = parseInt(userDb[2]);
+                }
+
+                let groupDb = groupInfo.stdout.trim().split(':');
+                if (groupInfo.code !== 0 || groupDb.length !== 4) {
+                    this._logger.error(`Directory group ${info.group} not found`);
+                    info.group = null;
+                    info.gid = null;
+                } else {
+                    info.gid = parseInt(groupDb[2]);
+                }
+
+                if (!info.user || !info.group)
+                    return;
+
+                try {
+                    fs.accessSync(info.dataDir, fs.constants.F_OK);
+                } catch (error) {
+                    return;
+                }
+
+                return this._runner.exec('chown', [ '-R', `${info.user}:${info.group}`, info.rootDir ])
+                    .then(() => {
+                        return this._runner.exec('chmod', [ '-R', 'ug+rwX', info.rootDir ]);
+                    })
+                    .then(() => {
+                        info.enabled = true;
+                    });
+            });
     }
 
     /**

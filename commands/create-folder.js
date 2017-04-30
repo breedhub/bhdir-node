@@ -1,8 +1,9 @@
 /**
- * Index command
- * @module commands/index
+ * Create Folder command
+ * @module commands/create-folder
  */
 const path = require('path');
+const fs = require('fs');
 const net = require('net');
 const uuid = require('uuid');
 const argvParser = require('argv');
@@ -11,25 +12,27 @@ const SocketWrapper = require('socket-wrapper');
 /**
  * Command class
  */
-class Index {
+class CreateFolder {
     /**
      * Create the service
      * @param {App} app                 The application
      * @param {object} config           Configuration
+     * @param {Runner} runner           Runner service
      * @param {Help} help               Help command
      */
-    constructor(app, config, help) {
+    constructor(app, config, runner, help) {
         this._app = app;
         this._config = config;
+        this._runner = runner;
         this._help = help;
     }
 
     /**
-     * Service name is 'commands.index'
+     * Service name is 'commands.createFolder'
      * @type {string}
      */
     static get provides() {
-        return 'commands.index';
+        return 'commands.createFolder';
     }
 
     /**
@@ -37,7 +40,7 @@ class Index {
      * @type {string[]}
      */
     static get requires() {
-        return [ 'app', 'config', 'commands.help' ];
+        return [ 'app', 'config', 'runner', 'commands.help' ];
     }
 
     /**
@@ -53,20 +56,30 @@ class Index {
                 type: 'boolean',
             })
             .option({
+                name: 'name',
+                short: 'n',
+                type: 'string',
+            })
+            .option({
                 name: 'socket',
                 short: 'z',
                 type: 'string',
             })
             .run(argv);
 
-        let folders = [];
-        for (let i = 1; i < args.targets.length; i++)
-            folders.push(args.targets[i]);
+        if (args.targets.length < 2)
+            return this._help.helpCreateFolder(argv);
+
+        let dir = args.targets[1];
+        let folder = args.options['name'] || path.basename(dir);
 
         let request = {
-            id: uuid.v4(),
-            command: 'index',
-            args: folders,
+            id: uuid.v1(),
+            command: 'create-folder',
+            args: [
+                folder,
+                dir,
+            ]
         };
 
         return this.send(Buffer.from(JSON.stringify(request), 'utf8'), args.options['socket'])
@@ -78,11 +91,13 @@ class Index {
                 if (!response.success)
                     throw new Error(`Error: ${response.message}`);
 
-                return response.results.reduce((prev, cur) => {
-                    return prev.then(() => {
-                        return this._app.info(cur);
+                return this._app.info(`ReadWrite: ${response.results[0]}\nReadOnly: ${response.results[1]}`);
+            })
+            .then(() => {
+                return this._runner.exec('/etc/init.d/resilio-sync', [ 'restart' ])
+                    .catch(() => {
+                        // do nothing
                     });
-                }, Promise.resolve());
             })
             .then(() => {
                 process.exit(0);
@@ -144,4 +159,4 @@ class Index {
     }
 }
 
-module.exports = Index;
+module.exports = CreateFolder;

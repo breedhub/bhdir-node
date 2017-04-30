@@ -1,14 +1,14 @@
 /**
- * Index event
- * @module daemon/events/index
+ * Create Folder event
+ * @module daemon/events/create-folder
  */
 const uuid = require('uuid');
 const WError = require('verror').WError;
 
 /**
- * Index event class
+ * Create Folder event class
  */
-class Index {
+class CreateFolder {
     /**
      * Create service
      * @param {App} app                             The application
@@ -22,11 +22,11 @@ class Index {
     }
 
     /**
-     * Service name is 'modules.daemon.events.index'
+     * Service name is 'modules.daemon.events.createFolder'
      * @type {string}
      */
     static get provides() {
-        return 'modules.daemon.events.index';
+        return 'modules.daemon.events.createFolder';
     }
 
     /**
@@ -47,42 +47,38 @@ class Index {
         if (!client)
             return;
 
-        this._logger.debug('index', `Got INDEX command`);
-        let reply = (success, value) => {
+        this._logger.debug('create-folder', `Got CREATE FOLDER command`);
+        let reply = (success, value1, value2) => {
             let reply = {
                 id: message.id,
                 success: success,
             };
-            if (success)
-                reply.results = value;
-            else
-                reply.message = value;
+            if (success) {
+                reply.results = [
+                    value1,
+                    value2
+                ];
+            } else {
+                reply.message = value1;
+            }
             let data = Buffer.from(JSON.stringify(reply), 'utf8');
-            this._logger.debug('index', `Sending INDEX response`);
+            this._logger.debug('create-folder', `Sending CREATE FOLDER response`);
             this.daemon.send(id, data);
         };
 
-        let folders = message.args;
-        if (!folders.length)
-            folders = Array.from(this.directory.directories.keys());
+        if (message.args.length !== 2)
+            return reply(false, 'Invalid arguments list');
 
-        folders.reduce(
-                (prev, cur) => {
-                    return prev.then(messages => {
-                        return this.index.build(cur)
-                            .then(msg => {
-                                return messages.concat(msg);
-                            });
-                    });
-                },
-                Promise.resolve([])
-            )
-            .then(messages => {
-                reply(true, messages);
+        let folder = message.args[0];
+        let dir = message.args[1];
+
+        this.directory.createFolder(folder, dir)
+            .then(info => {
+                reply(true, info.readwrite, info.readonly);
             })
             .catch(error => {
                 reply(false, error.message);
-                this._logger.error(new WError(error, 'Index.handle()'));
+                this._logger.error(new WError(error, 'CreateFolder.handle()'));
             });
     }
 
@@ -109,26 +105,15 @@ class Index {
     }
 
     /**
-     * Retrieve syncthing server
-     * @return {Syncthing}
+     * Retrieve watcher server
+     * @return {Watcher}
      */
-    get syncthing() {
-        if (this._syncthing)
-            return this._syncthing;
-        this._syncthing = this._app.get('servers').get('syncthing');
-        return this._syncthing;
-    }
-
-    /**
-     * Retrieve index server
-     * @return {Index}
-     */
-    get index() {
-        if (this._index)
-            return this._index;
-        this._index = this._app.get('servers').get('index');
-        return this._index;
+    get watcher() {
+        if (this._watcher)
+            return this._watcher;
+        this._watcher = this._app.get('servers').get('watcher');
+        return this._watcher;
     }
 }
 
-module.exports = Index;
+module.exports = CreateFolder;

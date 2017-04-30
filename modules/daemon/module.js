@@ -55,6 +55,12 @@ class Daemon {
 
         let server = this._app.get('servers').get('daemon');
 
+        let createFolder = this._app.get('modules.daemon.events.createFolder');
+        server.on('create_folder', createFolder.handle.bind(createFolder));
+
+        let addFolder = this._app.get('modules.daemon.events.addFolder');
+        server.on('add_folder', addFolder.handle.bind(addFolder));
+
         let ls = this._app.get('modules.daemon.events.ls');
         server.on('ls', ls.handle.bind(ls));
 
@@ -108,6 +114,9 @@ class Daemon {
 
         let index = this._app.get('modules.daemon.events.index');
         server.on('index', index.handle.bind(index));
+
+        let vacuum = this._app.get('modules.daemon.events.vacuum');
+        server.on('vacuum', vacuum.handle.bind(vacuum));
 
         let clearCache = this._app.get('modules.daemon.events.clearCache');
         server.on('clear_cache', clearCache.handle.bind(clearCache));
