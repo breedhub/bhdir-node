@@ -348,9 +348,10 @@ class Index extends EventEmitter {
             return Promise.reject(new Error(`Unknown directory or directory is disabled: ${record.directory}`));
 
         let search = info.tree.search(id);
-        if (search.length) {
+        if (search.length && search[0].deleted) {
             delete search[0].deleted;
             info.deleted.delete(id);
+            info.needSave = true;
             return Promise.resolve();
         }
 
