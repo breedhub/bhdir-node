@@ -276,6 +276,7 @@ class Index extends EventEmitter {
                     info.loading = false;
                     if (error.code === 'ENOENT') {
                         info.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+                        info.deleted = new Map();
                         return;
                     }
                     throw error;
