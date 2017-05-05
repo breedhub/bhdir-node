@@ -566,6 +566,36 @@ class Index extends EventEmitter {
                                             }
                                         })
                                 );
+                            } else if (files[i] === '.vars.json' || files[i] === '.root.json') {
+                                promises.push(
+                                    this._filer.lockRead(path.join(root, dir, files[i]))
+                                        .then(contents => {
+                                            let json;
+                                            try {
+                                                json = JSON.parse(contents);
+                                            } catch (error) {
+                                                return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
+                                            }
+
+                                            let variables = (files[i] === '.root.json' ? { '/': json } : json);
+                                            for (let key of Object.keys(variables)) {
+                                                if (!variables[key])
+                                                    continue;
+                                                let varId = variables[key]['id'];
+                                                if (!this._util.isUuid(varId))
+                                                    continue;
+
+                                                let varName = path.join(dir, key);
+                                                tree.insert(this.constructor.binUuid(varId), {
+                                                    buffer: null,
+                                                    data: {
+                                                        type: 'variable',
+                                                        path: varName,
+                                                    }
+                                                });
+                                            }
+                                        })
+                                );
                             } else if (re.test(files[i])) {
                                 let end;
                                 if ((end = dir.indexOf('/.history/')) !== -1) {
@@ -594,31 +624,31 @@ class Index extends EventEmitter {
                                             })
                                     );
                                 } else if ((end = dir.indexOf('/.files/')) !== -1) {
-                                        promises.push(
-                                            this._filer.lockRead(path.join(root, dir, files[i]))
-                                                .then(contents => {
-                                                    let json;
-                                                    try {
-                                                        json = JSON.parse(contents);
-                                                    } catch (error) {
-                                                        return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
+                                    promises.push(
+                                        this._filer.lockRead(path.join(root, dir, files[i]))
+                                            .then(contents => {
+                                                let json;
+                                                try {
+                                                    json = JSON.parse(contents);
+                                                } catch (error) {
+                                                    return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
+                                                }
+
+                                                let fileId = json['id'];
+                                                if (!this._util.isUuid(fileId))
+                                                    return;
+
+                                                tree.insert(this.constructor.binUuid(fileId), {
+                                                    buffer: null,
+                                                    data: {
+                                                        type: 'file',
+                                                        path: dir.substring(0, end),
+                                                        attr: path.join(dir, files[i]),
+                                                        bin: json['bin'],
                                                     }
-
-                                                    let fileId = json['id'];
-                                                    if (!this._util.isUuid(fileId))
-                                                        return;
-
-                                                    tree.insert(this.constructor.binUuid(fileId), {
-                                                        buffer: null,
-                                                        data: {
-                                                            type: 'file',
-                                                            path: dir.substring(0, end),
-                                                            attr: path.join(dir, files[i]),
-                                                            bin: json['bin'],
-                                                        }
-                                                    });
-                                                })
-                                        );
+                                                });
+                                            })
+                                    );
                                 }
                             }
                         }
