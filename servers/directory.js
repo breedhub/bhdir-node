@@ -1289,8 +1289,9 @@ class Directory extends EventEmitter {
                 let info = this.folders.get(folder);
                 let re = /^(\d+)\.json$/;
                 let files = [], dirs = [];
+                let baseDir = path.join(info.dataDir, filename, '.history');
                 return this._filer.process(
-                        path.join(info.dataDir, filename, '.history'),
+                        baseDir,
                         file => {
                             if (!re.test(path.basename(file)))
                                 return Promise.resolve();
@@ -1300,6 +1301,10 @@ class Directory extends EventEmitter {
                                     let json = JSON.parse(contents);
                                     files.push({ id: json.id, mtime: json.mtime, path: file });
                                 });
+                        },
+                        dir => {
+                            let name = dir.substring(baseDir.length);
+                            return Promise.resolve(name.split('/').length <= 5);
                         }
                     )
                     .then(() => {
@@ -1700,11 +1705,12 @@ class Directory extends EventEmitter {
                 let info = this.folders.get(folder);
                 let re = /^(\d+)\.json$/;
                 let files = [], dirs = [];
+                let baseDir = path.join(info.dataDir, filename, '.files');
                 return this._filer.process(
-                        path.join(info.dataDir, filename, '.files'),
-                        file => {
-                            if (!re.test(path.basename(file)))
-                                return Promise.resolve();
+                    baseDir,
+                    file => {
+                        if (!re.test(path.basename(file)))
+                            return Promise.resolve();
 
                             return this._filer.lockRead(file)
                                 .then(contents => {
@@ -1719,6 +1725,10 @@ class Directory extends EventEmitter {
                                         bin: (binDepth === jsonDepth + 1) ? path.dirname(bin) : bin
                                     });
                                 });
+                        },
+                        dir => {
+                            let name = dir.substring(baseDir.length);
+                            return Promise.resolve(name.split('/').length <= 5);
                         }
                     )
                     .then(() => {
