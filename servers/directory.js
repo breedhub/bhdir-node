@@ -1431,8 +1431,9 @@ class Directory extends EventEmitter {
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
                 let files = [], dirs = [];
+                let baseDir = path.join(info.dataDir, filename, '.history');
                 return this._filer.process(
-                        path.join(info.dataDir, filename, '.history'),
+                        baseDir,
                         file => {
                             if (!re.test(path.basename(file)))
                                 return Promise.resolve();
@@ -1442,6 +1443,10 @@ class Directory extends EventEmitter {
                                     let json = JSON.parse(contents);
                                     files.push({ id: json.id, mtime: json.mtime, path: file });
                                 });
+                        },
+                        dir => {
+                            let name = dir.substring(baseDir.length);
+                            return Promise.resolve(name.split('/').length <= 5);
                         }
                     )
                     .then(() => {
@@ -1840,26 +1845,31 @@ class Directory extends EventEmitter {
                 let info = this.directories.get(repo);
                 let re = /^(\d+)\.json$/;
                 let files = [], dirs = [];
+                let baseDir = path.join(info.dataDir, filename, '.files');
                 return this._filer.process(
-                    path.join(info.dataDir, filename, '.files'),
-                    file => {
-                        if (!re.test(path.basename(file)))
-                            return Promise.resolve();
+                        baseDir,
+                        file => {
+                            if (!re.test(path.basename(file)))
+                                return Promise.resolve();
 
-                        return this._filer.lockRead(file)
-                            .then(contents => {
-                                let json = JSON.parse(contents);
-                                let bin = path.join(info.dataDir, json['bin']);
-                                let jsonDepth = file.split('/').length;
-                                let binDepth = bin.split('/').length;
-                                files.push({
-                                    id: json.id,
-                                    mtime: json.mtime,
-                                    path: file,
-                                    bin: (binDepth === jsonDepth + 1) ? path.dirname(bin) : bin
+                            return this._filer.lockRead(file)
+                                .then(contents => {
+                                    let json = JSON.parse(contents);
+                                    let bin = path.join(info.dataDir, json['bin']);
+                                    let jsonDepth = file.split('/').length;
+                                    let binDepth = bin.split('/').length;
+                                    files.push({
+                                        id: json.id,
+                                        mtime: json.mtime,
+                                        path: file,
+                                        bin: (binDepth === jsonDepth + 1) ? path.dirname(bin) : bin
+                                    });
                                 });
-                            });
-                    }
+                        },
+                        dir => {
+                            let name = dir.substring(baseDir.length);
+                            return Promise.resolve(name.split('/').length <= 5);
+                        }
                     )
                     .then(() => {
                         files.sort((a, b) => { return a.mtime - b.mtime; });
