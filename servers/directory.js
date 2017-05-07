@@ -865,69 +865,83 @@ class Directory extends EventEmitter {
                 let name = path.basename(filename);
                 let directory = path.join(info.dataDir, path.dirname(filename));
 
-                return this._cacher.unset(variable)
+                return this._filer.createDirectory(
+                    directory,
+                    { mode: info.dirMode, uid: info.uid, gid: info.gid }
+                    )
                     .then(() => {
-                        this._filer.createDirectory(
-                                directory,
-                                { mode: info.dirMode, uid: info.uid, gid: info.gid }
-                            )
-                            .then(() => {
-                                return new Promise((resolve, reject) => {
-                                    let tries = 0;
-                                    let retry = () => {
-                                        if (++tries > this.constructor.dataRetryMax)
-                                            return reject(new Error(`Max retries reached while deleting ${variable}`));
+                        try {
+                            fs.accessSync(path.join(directory, filename === '/' ? '.root.json' : '.vars.json'), fs.constants.F_OK);
+                        } catch (error) {
+                            return;
+                        }
 
-                                        let success = false;
-                                        this._filer.lockUpdate(
-                                                path.join(directory, filename === '/' ? '.root.json' : '.vars.json'),
-                                                contents => {
-                                                    let json;
-                                                    try {
-                                                        json = JSON.parse(contents);
-                                                    } catch (error) {
-                                                        return Promise.resolve(contents);
-                                                    }
+                        return new Promise((resolve, reject) => {
+                                let tries = 0;
+                                let retry = () => {
+                                    if (++tries > this.constructor.dataRetryMax)
+                                        return reject(new Error(`Max retries reached while deleting ${variable}`));
 
-                                                    success = true;
-                                                    if (name) {
-                                                        if (!json[name])
-                                                            json[name] = {};
-                                                        this._initAttrs(json[name]);
-                                                        json[name].value = null;
-                                                        id = json[name]['id'];
-                                                    } else {
-                                                        this._initAttrs(json);
-                                                        json.value = null;
-                                                        id = json['id'];
-                                                    }
-                                                    return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
-                                                },
-                                                { mode: info.fileMode, uid: info.uid, gid: info.gid }
-                                            )
-                                            .then(() => {
-                                                if (success)
-                                                    return resolve();
+                                let success = false;
+                                this._filer.lockUpdate(
+                                        path.join(directory, filename === '/' ? '.root.json' : '.vars.json'),
+                                        contents => {
+                                            let json;
+                                            try {
+                                                json = JSON.parse(contents);
+                                            } catch (error) {
+                                                return Promise.resolve(contents);
+                                            }
 
-                                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                            })
-                                            .catch(error => {
-                                                reject(error);
-                                            });
-                                    };
-                                    retry();
-                                });
-                            })
-                            .then(() => {
-                                if (id && this._util.isUuid(id))
-                                    return this._index.del(this._index.constructor.binUuid(id));
-                            })
-                            .then(() => {
-                                return this.notify(variable, { value: null, mtime: Math.round(Date.now() / 1000) });
-                            })
-                            .catch(error => {
-                                this._logger.error(`FS error in del: ${error.message}`);
-                            });
+                                            success = true;
+                                            if (name) {
+                                                if (!json[name])
+                                                    json[name] = {};
+                                                this._initAttrs(json[name]);
+                                                json[name].value = null;
+                                                id = json[name]['id'];
+                                            } else {
+                                                this._initAttrs(json);
+                                                json.value = null;
+                                                id = json['id'];
+                                            }
+                                            return Promise.resolve(JSON.stringify(json, undefined, 4) + '\n');
+                                        },
+                                        { mode: info.fileMode, uid: info.uid, gid: info.gid }
+                                    )
+                                    .then(() => {
+                                        if (success)
+                                            return resolve();
+
+                                        setTimeout(() => {
+                                            retry();
+                                        }, this.constructor.dataRetryInterval);
+                                    })
+                                    .catch(error => {
+                                        reject(error);
+                                    });
+                            };
+                            retry();
+                        });
+                    })
+                    .then(() => {
+                        return this.clearHistory(variable, 0);
+                    })
+                    .then(() => {
+                        return this.clearFiles(variable, 0);
+                    })
+                    .then(() => {
+                        if (id && this._util.isUuid(id))
+                            return this._index.del(this._index.constructor.binUuid(id));
+                    })
+                    .then(() => {
+                        return this._cacher.unset(variable);
+                    })
+                    .then(() => {
+                        return this.notify(variable, {value: null, mtime: Math.round(Date.now() / 1000)});
+                    })
+                    .catch(error => {
+                        this._logger.error(`FS error: ${error.message}`);
                     });
             });
     }
