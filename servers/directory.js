@@ -1739,27 +1739,14 @@ class Directory extends EventEmitter {
                 if (type === 'file')
                     return path.join(info.dataDir, bin);
 
-                let loadDir = dir => {
+                let loadDir = (dir, depth) => {
                     return new Promise((resolve, reject) => {
                         try {
                             let name;
                             let files = fs.readdirSync(dir);
                             let numbers = [];
                             let reJson = /^(\d+)\.json$/, reDir = /^(\d+)$/;
-                            for (let file of files) {
-                                let result = reJson.exec(file);
-                                if (result) {
-                                    numbers.push({
-                                        num: parseInt(result[1]),
-                                        str: result[1],
-                                    });
-                                }
-                            }
-                            if (numbers.length) {
-                                numbers.sort((a, b) => { return a.num - b.num; });
-                                resolve(path.join(dir, numbers[numbers.length - 1].str + '.json'));
-                            } else {
-                                numbers = [];
+                            if (depth < 5) {
                                 for (let file of files) {
                                     let result = reDir.exec(file);
                                     if (result) {
@@ -1772,7 +1759,7 @@ class Directory extends EventEmitter {
                                 if (numbers.length) {
                                     numbers.sort((a, b) => { return a.num - b.num; });
                                     name = numbers[numbers.length - 1].str;
-                                    loadDir(path.join(dir, name))
+                                    loadDir(path.join(dir, name), depth + 1)
                                         .then(filename => {
                                             resolve(filename);
                                         })
@@ -1783,6 +1770,26 @@ class Directory extends EventEmitter {
                                 } else {
                                     resolve(null);
                                 }
+                            } else if (depth === 5) {
+                                for (let file of files) {
+                                    let result = reJson.exec(file);
+                                    if (result) {
+                                        numbers.push({
+                                            num: parseInt(result[1]),
+                                            str: result[1],
+                                        });
+                                    }
+                                }
+                                if (numbers.length) {
+                                    numbers.sort((a, b) => {
+                                        return a.num - b.num;
+                                    });
+                                    resolve(path.join(dir, numbers[numbers.length - 1].str + '.json'));
+                                } else {
+                                    resolve(null);
+                                }
+                            } else {
+                                resolve(null);
                             }
                         } catch (error) {
                             this._logger.error(`FS error: ${error.message}`);
@@ -1791,7 +1798,7 @@ class Directory extends EventEmitter {
                     });
                 };
 
-                return loadDir(path.join(info.dataDir, filename, '.files'))
+                return loadDir(path.join(info.dataDir, filename, '.files'), 1)
                     .then(filename => {
                         if (!filename)
                             return null;
