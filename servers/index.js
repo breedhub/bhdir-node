@@ -293,14 +293,14 @@ class Index extends EventEmitter {
                 },
                 error => {
                     info.loading = false;
-                    if (error.code === 'ENOENT')
+                    if (error.code === 'ENOENT') {
+                        info.tree = new AVLTree({ unique: true, compareKeys: this.constructor.compareKeys });
+                        info.deleted = new Map();
                         return;
-                    throw error;
+                    }
+                    throw new WError(error, `Index.load(): ${folder}`);
                 }
-            )
-            .catch(error => {
-                throw new WError(error, `Index.load(): ${folder}`);
-            });
+            );
     }
 
     /**
@@ -366,8 +366,15 @@ class Index extends EventEmitter {
         if (!info || !info.enabled)
             return Promise.reject(new Error(`Unknown folder or folder is disabled: ${record.folder}`));
 
-        if (info.tree.search(id).length)
+        let search = info.tree.search(id);
+        if (search.length) {
+            if (search[0].deleted) {
+                delete search[0].deleted;
+                info.deleted.delete(id);
+                info.needSave = true;
+            }
             return Promise.resolve();
+        }
 
         this._logger.debug('index', `Inserting ${type} of ${record.folder}:${record.path} as ${id}`);
         let data;
@@ -615,31 +622,31 @@ class Index extends EventEmitter {
                                             })
                                     );
                                 } else if ((end = dir.indexOf('/.files/')) !== -1) {
-                                        promises.push(
-                                            this._filer.lockRead(path.join(root, dir, files[i]))
-                                                .then(contents => {
-                                                    let json;
-                                                    try {
-                                                        json = JSON.parse(contents);
-                                                    } catch (error) {
-                                                        return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
+                                    promises.push(
+                                        this._filer.lockRead(path.join(root, dir, files[i]))
+                                            .then(contents => {
+                                                let json;
+                                                try {
+                                                    json = JSON.parse(contents);
+                                                } catch (error) {
+                                                    return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
+                                                }
+
+                                                let fileId = json['id'];
+                                                if (!this._util.isUuid(fileId))
+                                                    return;
+
+                                                tree.insert(this.constructor.binUuid(fileId), {
+                                                    buffer: null,
+                                                    data: {
+                                                        type: 'file',
+                                                        path: dir.substring(0, end),
+                                                        attr: path.join(dir, files[i]),
+                                                        bin: json['bin'],
                                                     }
-
-                                                    let fileId = json['id'];
-                                                    if (!this._util.isUuid(fileId))
-                                                        return;
-
-                                                    tree.insert(this.constructor.binUuid(fileId), {
-                                                        buffer: null,
-                                                        data: {
-                                                            type: 'file',
-                                                            path: dir.substring(0, end),
-                                                            attr: path.join(dir, files[i]),
-                                                            bin: json['bin'],
-                                                        }
-                                                    });
-                                                })
-                                        );
+                                                });
+                                            })
+                                    );
                                 }
                             }
                         }
