@@ -544,35 +544,6 @@ class Index extends EventEmitter {
                         for (let i = 0; i < files.length; i++) {
                             if (stats[i].isDirectory()) {
                                 promises.push(this._loadDir(root, path.join(dir, files[i]), tree, messages));
-                            } else if (files[i] === '.vars.json') {
-                                promises.push(
-                                    this._filer.lockRead(path.join(root, dir, files[i]))
-                                        .then(contents => {
-                                            let json;
-                                            try {
-                                                json = JSON.parse(contents);
-                                            } catch (error) {
-                                                return messages.push(`Could not read ${path.join(root, dir, files[i])}`);
-                                            }
-
-                                            for (let key of Object.keys(json)) {
-                                                if (!json[key])
-                                                    continue;
-                                                let varId = json[key]['id'];
-                                                if (!this._util.isUuid(varId))
-                                                    continue;
-
-                                                let varName = path.join(dir, key);
-                                                tree.insert(this.constructor.binUuid(varId), {
-                                                    buffer: null,
-                                                    data: {
-                                                        type: 'variable',
-                                                        path: varName,
-                                                    }
-                                                });
-                                            }
-                                        })
-                                );
                             } else if (files[i] === '.vars.json' || files[i] === '.root.json') {
                                 promises.push(
                                     this._filer.lockRead(path.join(root, dir, files[i]))
