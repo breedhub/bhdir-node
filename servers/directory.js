@@ -61,7 +61,7 @@ class Directory extends EventEmitter {
     }
 
     /**
-     * Retry reading/writing ofter waiting this much
+     * Retry reading/writing after waiting this much
      * @type {number}
      */
     static get dataRetryInterval() {
@@ -335,10 +335,13 @@ class Directory extends EventEmitter {
      * Create folder
      * @param {string} folder                       Folder name
      * @param {object} config                       Folder config as in config file
-     * @param {boolean} initialize=false            Initialize folder with files
+     * @param {boolean} initialize=false            Initialize folder if id does not exist
      * @return {Promise}                            Resolves to { readwrite, readonly }
      */
     createFolder(folder, config, initialize = false) {
+        if (this.folders.has(folder))
+            return Promise.resolve();
+
         let info = { enabled: false };
 
         return Promise.resolve()
@@ -486,13 +489,6 @@ class Directory extends EventEmitter {
      * @return {Promise}
      */
     notify(variable, info) {
-        if (!info) {
-            info = {
-                value: null,
-                mtime: 0,
-            };
-        }
-
         return Promise.resolve()
             .then(() => {
                 if (!this._util.isUuid(variable))
