@@ -1599,27 +1599,14 @@ class Directory extends EventEmitter {
                 if (type === 'file')
                     return path.join(info.dataDir, bin);
 
-                let loadDir = dir => {
+                let loadDir = (dir, depth) => {
                     return new Promise((resolve, reject) => {
                         try {
                             let name;
                             let files = fs.readdirSync(dir);
                             let numbers = [];
                             let reJson = /^(\d+)\.json$/, reDir = /^(\d+)$/;
-                            for (let file of files) {
-                                let result = reJson.exec(file);
-                                if (result) {
-                                    numbers.push({
-                                        num: parseInt(result[1]),
-                                        str: result[1],
-                                    });
-                                }
-                            }
-                            if (numbers.length) {
-                                numbers.sort((a, b) => { return a.num - b.num; });
-                                resolve(path.join(dir, numbers[numbers.length - 1].str + '.json'));
-                            } else {
-                                numbers = [];
+                            if (depth < 5) {
                                 for (let file of files) {
                                     let result = reDir.exec(file);
                                     if (result) {
@@ -1632,53 +1619,53 @@ class Directory extends EventEmitter {
                                 if (numbers.length) {
                                     numbers.sort((a, b) => { return a.num - b.num; });
                                     name = numbers[numbers.length - 1].str;
-                                    loadDir(path.join(dir, name))
-                                        .then(
-                                            filename => {
-                                                resolve(filename);
-                                            },
-                                            error => {
-                                                this._logger.error(`FS error in download: ${error.message}`);
-                                                resolve(null);
-                                            }
-                                        );
+                                    loadDir(path.join(dir, name), depth + 1)
+                                        .then(filename => {
+                                            resolve(filename);
+                                        })
+                                        .catch(error => {
+                                            this._logger.error(`FS error: ${error.message}`);
+                                            resolve(null);
+                                        });
                                 } else {
                                     resolve(null);
                                 }
+                            } else if (depth === 5) {
+                                for (let file of files) {
+                                    let result = reJson.exec(file);
+                                    if (result) {
+                                        numbers.push({
+                                            num: parseInt(result[1]),
+                                            str: result[1],
+                                        });
+                                    }
+                                }
+                                if (numbers.length) {
+                                    numbers.sort((a, b) => {
+                                        return a.num - b.num;
+                                    });
+                                    resolve(path.join(dir, numbers[numbers.length - 1].str + '.json'));
+                                } else {
+                                    resolve(null);
+                                }
+                            } else {
+                                resolve(null);
                             }
                         } catch (error) {
-                            this._logger.error(`FS error in download: ${error.message}`);
+                            this._logger.error(`FS error: ${error.message}`);
                             resolve(null);
                         }
                     });
                 };
 
-                return loadDir(path.join(info.dataDir, filename, '.files'))
+                return loadDir(path.join(info.dataDir, filename, '.files'), 1)
                     .then(filename => {
                         if (!filename)
                             return null;
 
-                        return new Promise((resolve, reject) => {
-                                let tries = 0;
-                                let retry = () => {
-                                    if (++tries > this.constructor.dataRetryMax)
-                                        return reject(new Error(`Max retries reached while getting download item of ${variable}`));
-
-                                    this._filer.lockRead(filename)
-                                        .then(contents => {
-                                            try {
-                                                resolve(JSON.parse(contents));
-                                            } catch (error) {
-                                                setTimeout(() => { retry(); }, this.constructor.dataRetryInterval);
-                                            }
-                                        })
-                                        .catch(error => {
-                                            reject(error);
-                                        });
-                                };
-                                retry();
-                            })
-                            .then(json => {
+                        return this._filer.lockRead(filename)
+                            .then(contents => {
+                                let json = JSON.parse(contents);
                                 return this._filer.lockReadBuffer(path.join(info.dataDir, json.bin));
                             });
                     });
