@@ -112,6 +112,7 @@ module.exports = {
             path: '/var/log/bhdir',
             interval: '1d',
             mode: 0o640,
+            maxFiles: 3,
         },
     },
 
