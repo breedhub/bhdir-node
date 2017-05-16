@@ -8,4 +8,4 @@ if (!argv.length)
     argv = [ 'help' ];
 
 const console = new Console(path.join(__dirname, '..'), argv);
-console.run();
+console.run({ disableLogFiles: true });
