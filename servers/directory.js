@@ -93,18 +93,6 @@ class Directory extends EventEmitter {
         this._name = name;
         return Promise.resolve()
             .then(() => {
-                return this._filer.lockRead(path.join(this._config.base_path, 'package.json'));
-            })
-            .then(packageInfo => {
-                let json;
-                try {
-                    json = JSON.parse(packageInfo);
-                } catch (error) {
-                    json = { name: 'program' };
-                }
-                this._logger.info(`Starting ${json.name}` + (json.version ? ' v' + json.version : ''));
-            })
-            .then(() => {
                 let configPath = (os.platform() === 'freebsd' ? '/usr/local/etc/bhdir' : '/etc/bhdir');
                 try {
                     fs.accessSync(path.join(configPath, 'bhdir.conf'), fs.constants.F_OK);
